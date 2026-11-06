@@ -143,10 +143,14 @@
 - 生成安装包需要 [Inno Setup 6](https://jrsoftware.org/isdl.php)
 
 ```bat
-build.bat           rem 构建 release exe
-build.bat test      rem 构建测试版并运行状态机单元测试
-build.bat installer rem 构建 release + 安装包
+build.bat
+build.bat test
+build.bat installer
 ```
+
+- `build.bat`：构建 release exe。
+- `build.bat test`：构建测试版并运行状态机单元测试。
+- `build.bat installer`：构建 release 与安装包。
 
 产物：
 
