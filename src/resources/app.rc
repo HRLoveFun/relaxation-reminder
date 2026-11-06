@@ -1,0 +1,35 @@
+#pragma code_page(65001)
+
+#include <windows.h>
+
+1 RT_MANIFEST "src/resources/app.manifest"
+1 ICON "src/resources/app.ico"
+
+1 VERSIONINFO
+FILEVERSION 0, 11, 25, 0
+PRODUCTVERSION 0, 11, 25, 0
+FILEFLAGSMASK 0x3fL
+FILEFLAGS 0x0L
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080404b0"
+        BEGIN
+            VALUE "CompanyName", "HRLoveFun"
+            VALUE "FileDescription", "休息提醒"
+            VALUE "FileVersion", "0.11.25.0"
+            VALUE "InternalName", "RelaxationReminder"
+            VALUE "LegalCopyright", "MIT License"
+            VALUE "OriginalFilename", "RelaxationReminder.exe"
+            VALUE "ProductName", "休息提醒"
+            VALUE "ProductVersion", "0.11.25.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x804, 1200
+    END
+END

@@ -1,0 +1,598 @@
+#include "reminder_window.h"
+
+#include "win32/ui_theme.h"
+
+#include <shellscalingapi.h>
+
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <string>
+
+namespace rr {
+namespace {
+
+constexpr wchar_t kWindowClass[] = L"RelaxationReminderWindow";
+constexpr UINT kSnoozeButtonId = 2001;
+constexpr UINT kCloseButtonId = 2002;
+constexpr UINT kSettingsButtonId = 2003;
+
+int ClampInt(int value, int low, int high) {
+    return std::max(low, std::min(value, high));
+}
+
+std::wstring FormatClock(uint32_t seconds) {
+    wchar_t buffer[16] = {};
+    swprintf_s(buffer, L"%02u:%02u", seconds / 60, seconds % 60);
+    return buffer;
+}
+
+void AddRoundedRect(Gdiplus::GraphicsPath* path, const Gdiplus::RectF& rect,
+                    float radius) {
+    const float diameter = radius * 2.0f;
+    path->AddArc(rect.X, rect.Y, diameter, diameter, 180.0f, 90.0f);
+    path->AddArc(rect.X + rect.Width - diameter, rect.Y, diameter, diameter,
+                 270.0f, 90.0f);
+    path->AddArc(rect.X + rect.Width - diameter,
+                 rect.Y + rect.Height - diameter, diameter, diameter, 0.0f,
+                 90.0f);
+    path->AddArc(rect.X, rect.Y + rect.Height - diameter, diameter, diameter,
+                 90.0f, 90.0f);
+    path->CloseFigure();
+}
+
+void DrawPlaceholderCharacter(Gdiplus::Graphics& graphics,
+                              const Gdiplus::RectF& area) {
+    const float inset = area.Width * 0.08f;
+    const Gdiplus::RectF face(area.X + inset, area.Y + inset,
+                              area.Width - inset * 2.0f,
+                              area.Height - inset * 2.0f);
+    if (face.Width <= 0.0f || face.Height <= 0.0f) {
+        return;
+    }
+
+    Gdiplus::GraphicsPath path;
+    AddRoundedRect(&path, face, face.Width * 0.22f);
+
+    Gdiplus::SolidBrush fill(Gdiplus::Color(255, 255, 183, 77));
+    Gdiplus::Pen outline(Gdiplus::Color(255, 230, 126, 34),
+                         std::max(1.5f, face.Width * 0.012f));
+    graphics.FillPath(&fill, &path);
+    graphics.DrawPath(&outline, &path);
+
+    const Gdiplus::Color ink(255, 93, 64, 55);
+    Gdiplus::SolidBrush ink_brush(ink);
+    const float eye_radius = face.Width * 0.055f;
+    const float eye_y = face.Y + face.Height * 0.38f;
+    graphics.FillEllipse(&ink_brush, face.X + face.Width * 0.30f - eye_radius,
+                         eye_y - eye_radius, eye_radius * 2.0f,
+                         eye_radius * 2.0f);
+    graphics.FillEllipse(&ink_brush, face.X + face.Width * 0.70f - eye_radius,
+                         eye_y - eye_radius, eye_radius * 2.0f,
+                         eye_radius * 2.0f);
+
+    const Gdiplus::RectF smile(face.X + face.Width * 0.28f,
+                               face.Y + face.Height * 0.46f,
+                               face.Width * 0.44f, face.Height * 0.30f);
+    Gdiplus::Pen smile_pen(ink, std::max(2.0f, face.Width * 0.032f));
+    smile_pen.SetStartCap(Gdiplus::LineCapRound);
+    smile_pen.SetEndCap(Gdiplus::LineCapRound);
+    graphics.DrawArc(&smile_pen, smile, 25.0f, 130.0f);
+
+    Gdiplus::SolidBrush cheek(Gdiplus::Color(110, 255, 138, 128));
+    const float cheek_radius = face.Width * 0.055f;
+    graphics.FillEllipse(&cheek, face.X + face.Width * 0.21f - cheek_radius,
+                         face.Y + face.Height * 0.58f - cheek_radius,
+                         cheek_radius * 2.0f, cheek_radius * 2.0f);
+    graphics.FillEllipse(&cheek, face.X + face.Width * 0.79f - cheek_radius,
+                         face.Y + face.Height * 0.58f - cheek_radius,
+                         cheek_radius * 2.0f, cheek_radius * 2.0f);
+}
+
+}  // namespace
+
+ReminderWindow::~ReminderWindow() {
+    Destroy();
+}
+
+bool ReminderWindow::Create(HINSTANCE instance, HWND owner) {
+    instance_ = instance;
+    owner_ = owner;
+
+    WNDCLASSEXW window_class = {};
+    window_class.cbSize = sizeof(window_class);
+    window_class.lpfnWndProc = WndProc;
+    window_class.hInstance = instance;
+    window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    window_class.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(1));
+    window_class.lpszClassName = kWindowClass;
+    if (!RegisterClassExW(&window_class) &&
+        GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+        return false;
+    }
+
+    hwnd_ = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, kWindowClass,
+                            L"休息提醒", WS_POPUP | WS_CLIPCHILDREN, 0, 0,
+                            320, 320, owner, nullptr, instance, this);
+    if (hwnd_ == nullptr) {
+        return false;
+    }
+
+    snooze_button_ = CreateWindowExW(
+        0, L"BUTTON", L"延后", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
+        0, 0, 0, 0, hwnd_,
+        reinterpret_cast<HMENU>(static_cast<UINT_PTR>(kSnoozeButtonId)),
+        instance, nullptr);
+    close_button_ = CreateWindowExW(
+        0, L"BUTTON", L"关闭", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
+        0, 0, 0, 0, hwnd_,
+        reinterpret_cast<HMENU>(static_cast<UINT_PTR>(kCloseButtonId)), instance,
+        nullptr);
+    settings_button_ = CreateWindowExW(
+        0, L"BUTTON", L"设置", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
+        0, 0, 0, 0, hwnd_,
+        reinterpret_cast<HMENU>(static_cast<UINT_PTR>(kSettingsButtonId)),
+        instance, nullptr);
+
+    if (snooze_button_ == nullptr || close_button_ == nullptr ||
+        settings_button_ == nullptr) {
+        DestroyWindow(hwnd_);
+        hwnd_ = nullptr;
+        return false;
+    }
+
+    UpdateFonts(320, 320);
+    Layout(320, 320);
+    return true;
+}
+
+void ReminderWindow::Destroy() {
+    if (hwnd_ != nullptr && IsWindow(hwnd_) != FALSE) {
+        DestroyWindow(hwnd_);
+    }
+    hwnd_ = nullptr;
+    snooze_button_ = nullptr;
+    close_button_ = nullptr;
+    settings_button_ = nullptr;
+    visible_ = false;
+    current_side_ = 0;
+
+    if (title_font_ != nullptr) {
+        DeleteObject(title_font_);
+        title_font_ = nullptr;
+    }
+    if (body_font_ != nullptr) {
+        DeleteObject(body_font_);
+        body_font_ = nullptr;
+    }
+    title_font_height_ = 0;
+    body_font_height_ = 0;
+
+    character_.Clear();
+}
+
+void ReminderWindow::ShowAtCursor(uint64_t now_ms, bool snooze_used) {
+    (void)now_ms;
+    if (hwnd_ == nullptr) {
+        return;
+    }
+
+    POINT cursor = {};
+    GetCursorPos(&cursor);
+    HMONITOR monitor = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
+
+    MONITORINFO monitor_info = {};
+    monitor_info.cbSize = sizeof(monitor_info);
+    if (monitor == nullptr || !GetMonitorInfoW(monitor, &monitor_info)) {
+        monitor_info.rcWork.left = 0;
+        monitor_info.rcWork.top = 0;
+        monitor_info.rcWork.right = GetSystemMetrics(SM_CXSCREEN);
+        monitor_info.rcWork.bottom = GetSystemMetrics(SM_CYSCREEN);
+        monitor = nullptr;
+    }
+    work_area_ = monitor_info.rcWork;
+
+    UINT dpi_x = 96;
+    UINT dpi_y = 96;
+    if (monitor != nullptr) {
+        if (FAILED(GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &dpi_x,
+                                    &dpi_y))) {
+            dpi_x = 96;
+        }
+    }
+    dpi_ = dpi_x == 0 ? 96 : dpi_x;
+
+    const int work_width = work_area_.right - work_area_.left;
+    const int work_height = work_area_.bottom - work_area_.top;
+    int initial_side = MulDiv(320, static_cast<int>(dpi_), 96);
+    initial_side =
+        ClampInt(initial_side, 1, std::min(work_width, work_height));
+
+    growth_.Reset(initial_side, work_width, work_height, 60.0);
+
+    int left = cursor.x - initial_side / 2;
+    int top = cursor.y - initial_side / 2;
+    left = ClampInt(left, work_area_.left, work_area_.right - initial_side);
+    top = ClampInt(top, work_area_.top, work_area_.bottom - initial_side);
+
+    center_.x = left + initial_side / 2;
+    center_.y = top + initial_side / 2;
+    current_side_ = initial_side;
+    current_left_ = left;
+    current_top_ = top;
+
+    SetWindowPos(hwnd_, HWND_TOPMOST, left, top, initial_side, initial_side,
+                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
+
+    visible_ = true;
+    status_text_.clear();
+    character_.ResetAnimation();
+    snooze_enabled_ = !snooze_used;
+    if (snooze_button_ != nullptr) {
+        EnableWindow(snooze_button_, snooze_enabled_ ? TRUE : FALSE);
+    }
+
+    UpdateFonts(initial_side, initial_side);
+    Layout(initial_side, initial_side);
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void ReminderWindow::Hide() {
+    if (hwnd_ != nullptr) {
+        ShowWindow(hwnd_, SW_HIDE);
+    }
+    visible_ = false;
+}
+
+void ReminderWindow::Update(uint64_t now_ms, const StateMachine& machine) {
+    if (!visible_ || hwnd_ == nullptr) {
+        return;
+    }
+    if (!machine.IsVisible()) {
+        Hide();
+        return;
+    }
+
+    const int work_width = work_area_.right - work_area_.left;
+    const int work_height = work_area_.bottom - work_area_.top;
+    int side = static_cast<int>(
+        std::lround(growth_.SideAt(machine.expansion_elapsed_ms())));
+    side = ClampInt(side, 1, std::min(work_width, work_height));
+
+    if (side != current_side_) {
+        ResizeTo(side);
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+
+    if (character_.Tick(now_ms)) {
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+
+    const std::wstring status = BuildStatus(machine);
+    if (status != status_text_) {
+        status_text_ = status;
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+
+    SetSnoozeEnabled(!machine.snooze_used());
+}
+
+void ReminderWindow::SetUserName(const std::wstring& name) {
+    if (name == user_name_) {
+        return;
+    }
+    user_name_ = name;
+    Invalidate();
+}
+
+void ReminderWindow::SetSnoozeEnabled(bool enabled) {
+    if (snooze_button_ == nullptr || enabled == snooze_enabled_) {
+        return;
+    }
+    snooze_enabled_ = enabled;
+    EnableWindow(snooze_button_, enabled ? TRUE : FALSE);
+}
+
+bool ReminderWindow::LoadCharacter(const std::wstring& path,
+                                   std::wstring* error) {
+    if (!character_.Load(path, error)) {
+        return false;
+    }
+    Invalidate();
+    return true;
+}
+
+void ReminderWindow::ClearCharacter() {
+    character_.Clear();
+    Invalidate();
+}
+
+void ReminderWindow::Invalidate() {
+    if (hwnd_ != nullptr) {
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+}
+
+void ReminderWindow::ResizeTo(int side) {
+    int left = center_.x - side / 2;
+    int top = center_.y - side / 2;
+    left = ClampInt(left, work_area_.left, work_area_.right - side);
+    top = ClampInt(top, work_area_.top, work_area_.bottom - side);
+
+    SetWindowPos(hwnd_, nullptr, left, top, side, side,
+                 SWP_NOACTIVATE | SWP_NOZORDER);
+    current_side_ = side;
+    current_left_ = left;
+    current_top_ = top;
+}
+
+void ReminderWindow::NotifyOwner(UINT message) {
+    if (owner_ != nullptr) {
+        PostMessageW(owner_, message, 0, 0);
+    }
+}
+
+std::wstring ReminderWindow::BuildStatus(const StateMachine& machine) const {
+    switch (machine.state()) {
+        case State::ShowActive:
+            return L"离开键鼠 " +
+                   std::to_wstring(machine.idle_threshold_seconds()) +
+                   L" 秒即开始休息";
+        case State::RestRunning:
+            return L"休息中 " + FormatClock(machine.rest_remaining_seconds()) +
+                   L" / " + FormatClock(machine.rest_total_seconds());
+        case State::RestPaused:
+            return L"休息已暂停，离开键鼠 " +
+                   std::to_wstring(machine.idle_threshold_seconds()) +
+                   L" 秒后继续";
+        default:
+            return {};
+    }
+}
+
+void ReminderWindow::UpdateFonts(int width, int height) {
+    const int side = std::min(width, height);
+    const double scale = static_cast<double>(dpi_) / 96.0;
+    const int title_height = ClampInt(
+        static_cast<int>(std::lround(side * 0.075)),
+        static_cast<int>(std::lround(16.0 * scale)),
+        static_cast<int>(std::lround(34.0 * scale)));
+    const int body_height = ClampInt(
+        static_cast<int>(std::lround(side * 0.045)),
+        static_cast<int>(std::lround(12.0 * scale)),
+        static_cast<int>(std::lround(22.0 * scale)));
+
+    if (title_height == title_font_height_ &&
+        body_height == body_font_height_) {
+        return;
+    }
+
+    HFONT new_title = CreateFontW(
+        -title_height, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, kUiFontFamily);
+    HFONT new_body = CreateFontW(
+        -body_height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+        DEFAULT_PITCH | FF_DONTCARE, kUiFontFamily);
+
+    HFONT old_title = title_font_;
+    HFONT old_body = body_font_;
+    if (new_title != nullptr) {
+        title_font_ = new_title;
+    }
+    if (new_body != nullptr) {
+        body_font_ = new_body;
+    }
+    title_font_height_ = title_height;
+    body_font_height_ = body_height;
+
+    if (snooze_button_ != nullptr) {
+        SendMessageW(snooze_button_, WM_SETFONT,
+                     reinterpret_cast<WPARAM>(body_font_), TRUE);
+    }
+    if (close_button_ != nullptr) {
+        SendMessageW(close_button_, WM_SETFONT,
+                     reinterpret_cast<WPARAM>(body_font_), TRUE);
+    }
+    if (settings_button_ != nullptr) {
+        SendMessageW(settings_button_, WM_SETFONT,
+                     reinterpret_cast<WPARAM>(body_font_), TRUE);
+    }
+
+    if (old_title != nullptr && old_title != title_font_) {
+        DeleteObject(old_title);
+    }
+    if (old_body != nullptr && old_body != body_font_) {
+        DeleteObject(old_body);
+    }
+}
+
+void ReminderWindow::Layout(int width, int height) {
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+    UpdateFonts(width, height);
+
+    const int side = std::min(width, height);
+    const double scale = static_cast<double>(dpi_) / 96.0;
+    const int action_width = ClampInt(
+        static_cast<int>(std::lround(side * 0.30)),
+        static_cast<int>(std::lround(88.0 * scale)),
+        static_cast<int>(std::lround(150.0 * scale)));
+    const int settings_width = ClampInt(
+        static_cast<int>(std::lround(side * 0.19)),
+        static_cast<int>(std::lround(54.0 * scale)),
+        static_cast<int>(std::lround(90.0 * scale)));
+    const int button_height = ClampInt(
+        static_cast<int>(std::lround(side * 0.105)),
+        static_cast<int>(std::lround(30.0 * scale)),
+        static_cast<int>(std::lround(44.0 * scale)));
+    const int gap = static_cast<int>(std::lround(8.0 * scale));
+    const int margin = static_cast<int>(std::lround(10.0 * scale));
+
+    const int top =
+        height - static_cast<int>(std::lround(side * 0.06)) - button_height;
+    if (settings_button_ != nullptr) {
+        MoveWindow(settings_button_, margin, top, settings_width, button_height,
+                   TRUE);
+    }
+    if (close_button_ != nullptr) {
+        MoveWindow(close_button_, width - margin - action_width, top,
+                   action_width, button_height, TRUE);
+    }
+    if (snooze_button_ != nullptr) {
+        MoveWindow(snooze_button_, width - margin - action_width * 2 - gap, top,
+                   action_width, button_height, TRUE);
+    }
+}
+
+void ReminderWindow::Paint(HDC dc) {
+    RECT client = {};
+    GetClientRect(hwnd_, &client);
+    const int width = client.right - client.left;
+    const int height = client.bottom - client.top;
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+
+    Gdiplus::Graphics graphics(dc);
+    graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHighQuality);
+
+    Gdiplus::SolidBrush background(Gdiplus::Color(255, 255, 249, 235));
+    graphics.FillRectangle(&background, 0, 0, width, height);
+
+    const float border_width =
+        std::max(1.0f, static_cast<float>(dpi_) / 96.0f);
+    Gdiplus::Pen border(Gdiplus::Color(255, 214, 190, 160), border_width);
+    graphics.DrawRectangle(&border, border_width / 2.0f, border_width / 2.0f,
+                           static_cast<float>(width) - border_width,
+                           static_cast<float>(height) - border_width);
+
+    const float side = static_cast<float>(std::min(width, height));
+    const float image_side = side * 0.50f;
+    const float image_top = side * 0.07f;
+    const Gdiplus::RectF image_rect(
+        (static_cast<float>(width) - image_side) / 2.0f, image_top, image_side,
+        image_side);
+    if (character_.loaded()) {
+        character_.Draw(graphics, image_rect);
+    } else {
+        DrawPlaceholderCharacter(graphics, image_rect);
+    }
+    graphics.Flush();
+
+    const int image_bottom =
+        static_cast<int>(std::lround(image_top + image_side));
+    const int title_top =
+        image_bottom + static_cast<int>(std::lround(side * 0.03f));
+    const int title_height =
+        static_cast<int>(std::lround(title_font_height_ * 1.35));
+    const int status_top =
+        title_top + title_height +
+        static_cast<int>(std::lround(side * 0.005f));
+    const int status_height =
+        static_cast<int>(std::lround(body_font_height_ * 1.4));
+
+    SetBkMode(dc, TRANSPARENT);
+    if (title_font_ != nullptr) {
+        const std::wstring title =
+            user_name_.empty() ? L"休息一下" : user_name_ + L"，休息一下";
+        HGDIOBJ old_font = SelectObject(dc, title_font_);
+        SetTextColor(dc, RGB(62, 39, 35));
+        RECT title_rect = {0, title_top, width, title_top + title_height};
+        DrawTextW(dc, title.c_str(), -1, &title_rect,
+                  DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        SelectObject(dc, old_font);
+    }
+    if (body_font_ != nullptr && !status_text_.empty()) {
+        HGDIOBJ old_font = SelectObject(dc, body_font_);
+        SetTextColor(dc, RGB(109, 76, 65));
+        RECT status_rect = {0, status_top, width, status_top + status_height};
+        DrawTextW(dc, status_text_.c_str(), -1, &status_rect,
+                  DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        SelectObject(dc, old_font);
+    }
+}
+
+LRESULT CALLBACK ReminderWindow::WndProc(HWND hwnd, UINT message,
+                                         WPARAM wparam, LPARAM lparam) {
+    if (message == WM_NCCREATE) {
+        auto* create = reinterpret_cast<CREATESTRUCTW*>(lparam);
+        auto* self = static_cast<ReminderWindow*>(create->lpCreateParams);
+        self->hwnd_ = hwnd;
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA,
+                          reinterpret_cast<LONG_PTR>(self));
+        return TRUE;
+    }
+
+    auto* self = reinterpret_cast<ReminderWindow*>(
+        GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    LRESULT result = self != nullptr
+                         ? self->HandleMessage(message, wparam, lparam)
+                         : DefWindowProcW(hwnd, message, wparam, lparam);
+
+    if (message == WM_NCDESTROY) {
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+        if (self != nullptr) {
+            self->hwnd_ = nullptr;
+        }
+    }
+    return result;
+}
+
+LRESULT ReminderWindow::HandleMessage(UINT message, WPARAM wparam,
+                                      LPARAM lparam) {
+    switch (message) {
+        case WM_SIZE:
+            Layout(LOWORD(lparam), HIWORD(lparam));
+            return 0;
+
+        case WM_ERASEBKGND:
+            return 1;
+
+        case WM_PAINT: {
+            PAINTSTRUCT paint = {};
+            HDC dc = BeginPaint(hwnd_, &paint);
+            Paint(dc);
+            EndPaint(hwnd_, &paint);
+            return 0;
+        }
+
+        case WM_COMMAND:
+            if (HIWORD(wparam) == BN_CLICKED) {
+                switch (LOWORD(wparam)) {
+                    case kSnoozeButtonId:
+                        NotifyOwner(kSnoozeMessage);
+                        return 0;
+                    case kCloseButtonId:
+                        NotifyOwner(kCloseMessage);
+                        return 0;
+                    case kSettingsButtonId:
+                        NotifyOwner(kSettingsMessage);
+                        return 0;
+                    default:
+                        break;
+                }
+            }
+            break;
+
+        case WM_CLOSE:
+            NotifyOwner(kCloseMessage);
+            return 0;
+
+        case WM_KEYDOWN:
+            if (wparam == VK_ESCAPE) {
+                NotifyOwner(kCloseMessage);
+                return 0;
+            }
+            break;
+
+        default:
+            break;
+    }
+    return DefWindowProcW(hwnd_, message, wparam, lparam);
+}
+
+}  // namespace rr
