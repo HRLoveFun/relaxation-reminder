@@ -19,11 +19,13 @@ uint32_t SecondsCeil(uint64_t ms) {
 
 void StateMachine::Configure(uint32_t interval_minutes, uint32_t rest_minutes,
                              uint32_t snooze_minutes,
-                             uint32_t idle_threshold_seconds) {
+                             uint32_t idle_threshold_seconds,
+                             uint32_t music_lead_seconds) {
     pending_interval_ms_ = MinutesToMs(interval_minutes);
     pending_rest_ms_ = MinutesToMs(rest_minutes);
     pending_snooze_ms_ = MinutesToMs(snooze_minutes);
     pending_idle_ms_ = idle_threshold_seconds * 1000u;
+    pending_music_lead_ms_ = music_lead_seconds * 1000u;
 }
 
 void StateMachine::Start(uint64_t now_ms) {
@@ -107,6 +109,15 @@ TickResult StateMachine::Tick(uint64_t now_ms, uint32_t idle_ms) {
                 result.resumed_rest = true;
             }
             break;
+    }
+
+    // Fire at most once per rest session, only while the countdown is
+    // actually running. A paused rest resumes and can still reach this edge;
+    // a dismissed rest has already left RestRunning and will not.
+    if (state_ == State::RestRunning && !rest_music_played_ &&
+        rest_remaining_ms_ <= music_lead_ms_) {
+        rest_music_played_ = true;
+        result.rest_music_due = true;
     }
 
     return result;
@@ -196,6 +207,7 @@ void StateMachine::EnterWait(uint64_t now_ms) {
     rest_remaining_ms_ = 0;
     expansion_elapsed_ms_ = 0;
     snooze_used_ = false;
+    rest_music_played_ = false;
 }
 
 void StateMachine::EnterShow(uint64_t now_ms, bool from_snooze) {
@@ -204,6 +216,7 @@ void StateMachine::EnterShow(uint64_t now_ms, bool from_snooze) {
     state_ = State::ShowActive;
     expansion_elapsed_ms_ = 0;
     rest_remaining_ms_ = 0;
+    rest_music_played_ = false;
     if (!from_snooze) {
         snooze_used_ = false;
     }
@@ -225,6 +238,9 @@ void StateMachine::ApplyPendingCycle() {
     idle_ms_ = pending_idle_ms_ != 0
                    ? pending_idle_ms_
                    : kDefaultIdleThresholdSeconds * 1000u;
+    music_lead_ms_ = pending_music_lead_ms_ != 0
+                         ? pending_music_lead_ms_
+                         : kDefaultMusicLeadSeconds * 1000u;
 }
 
 }  // namespace rr

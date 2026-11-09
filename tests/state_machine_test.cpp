@@ -25,10 +25,11 @@ void Check(bool condition, const char* expression, int line) {
 rr::StateMachine MakeMachine(uint32_t interval_minutes = 30,
                              uint32_t rest_minutes = 5,
                              uint32_t snooze_minutes = 5,
-                             uint32_t idle_seconds = 10) {
+                             uint32_t idle_seconds = 10,
+                             uint32_t music_lead_seconds = 10) {
     rr::StateMachine machine;
     machine.Configure(interval_minutes, rest_minutes, snooze_minutes,
-                      idle_seconds);
+                      idle_seconds, music_lead_seconds);
     machine.Start(0);
     return machine;
 }
@@ -218,11 +219,102 @@ void CloseReminderEndsCycle() {
     CHECK(machine.interval_remaining_seconds() == 30 * 60);
 }
 
+void RestMusicFiresOnceAtLeadTime() {
+    rr::StateMachine machine = MakeMachine(30, 5, 5, 10, 10);
+    machine.Tick(30 * kMinute, 0);
+    uint64_t now = 30 * kMinute;
+    machine.Tick(now, 10000);
+    CHECK(machine.state() == rr::State::RestRunning);
+    CHECK(machine.rest_remaining_seconds() == 300);
+
+    now += 289 * kSecond;
+    rr::TickResult result = machine.Tick(now, 10000);
+    CHECK(!result.rest_music_due);
+    CHECK(machine.rest_remaining_seconds() == 11);
+
+    now += kSecond;
+    result = machine.Tick(now, 10000);
+    CHECK(result.rest_music_due);
+    CHECK(machine.rest_remaining_seconds() == 10);
+
+    // Only once per rest session.
+    now += kSecond;
+    result = machine.Tick(now, 10000);
+    CHECK(!result.rest_music_due);
+
+    // The next reminder cycle starts a fresh rest session.
+    now += 9 * kSecond;
+    result = machine.Tick(now, 10000);
+    CHECK(result.final_dismiss);
+    CHECK(machine.state() == rr::State::WaitInterval);
+
+    now += 30 * kMinute;
+    result = machine.Tick(now, 0);
+    CHECK(result.show_reminder);
+    now += 10 * kSecond;
+    machine.Tick(now, 10000);
+    CHECK(machine.state() == rr::State::RestRunning);
+
+    now += 290 * kSecond;
+    result = machine.Tick(now, 10000);
+    CHECK(result.rest_music_due);
+}
+
+void RestMusicWaitsForResumedRest() {
+    rr::StateMachine machine = MakeMachine(30, 5, 5, 10, 10);
+    machine.Tick(30 * kMinute, 0);
+    uint64_t now = 30 * kMinute;
+    machine.Tick(now, 10000);
+
+    // Count down to 20 seconds first, then stop before the 10-second lead
+    // window. A tick that detects input discards its delta, so the countdown
+    // must be advanced with idle ticks before the pause tick.
+    now += 280 * kSecond;
+    machine.Tick(now, 10000);
+    CHECK(machine.rest_remaining_seconds() == 20);
+
+    now += kSecond;
+    rr::TickResult result = machine.Tick(now, 1000);
+    CHECK(result.paused_rest);
+    CHECK(machine.state() == rr::State::RestPaused);
+    CHECK(machine.rest_remaining_seconds() == 20);
+
+    // No chime while the user is active, even if the remaining time would
+    // fall inside the lead window.
+    now += 120 * kSecond;
+    result = machine.Tick(now, 1000);
+    CHECK(!result.rest_music_due);
+
+    now += kSecond;
+    result = machine.Tick(now, 10000);
+    CHECK(result.resumed_rest);
+    CHECK(!result.rest_music_due);
+
+    now += 10 * kSecond;
+    result = machine.Tick(now, 10000);
+    CHECK(result.rest_music_due);
+}
+
+void RestMusicDoesNotFireWhenRestEndsInOneStep() {
+    rr::StateMachine machine = MakeMachine(30, 5, 5, 10, 10);
+    machine.Tick(30 * kMinute, 0);
+    const uint64_t shown_at = 30 * kMinute;
+    machine.Tick(shown_at, 10000);
+    CHECK(machine.state() == rr::State::RestRunning);
+
+    // A single tick that consumes the whole rest (for example after a long
+    // pause) dismisses the window without playing the chime.
+    rr::TickResult result = machine.Tick(shown_at + 5 * kMinute, 10000);
+    CHECK(result.final_dismiss);
+    CHECK(!result.rest_music_due);
+    CHECK(machine.state() == rr::State::WaitInterval);
+}
+
 void ConfigChangesApplyNextCycle() {
     rr::StateMachine machine = MakeMachine();
     machine.Tick(10 * kMinute, 0);
 
-    machine.Configure(5, 10, 2, 5);
+    machine.Configure(5, 10, 2, 5, 10);
     rr::TickResult result = machine.Tick(30 * kMinute, 0);
     CHECK(result.show_reminder);
 
@@ -272,6 +364,8 @@ void ConfigValidationFallsBack() {
     config.snooze_duration_minutes = 0;
     config.idle_threshold_seconds = 3601;
     config.character_image_file = "..\\escape.png";
+    config.music_lead_seconds = 0;
+    config.music_file = "..\\escape.wav";
     config.user_name = L"  \r\n";
 
     rr::Config sanitized = rr::Sanitize(config);
@@ -281,6 +375,9 @@ void ConfigValidationFallsBack() {
     CHECK(sanitized.idle_threshold_seconds == 10);
     CHECK(sanitized.character_image_file.empty());
     CHECK(sanitized.autostart);
+    CHECK(sanitized.music_enabled);
+    CHECK(sanitized.music_lead_seconds == 10);
+    CHECK(sanitized.music_file.empty());
     CHECK(sanitized.user_name == L"牛马");
 
     config.user_name = L"  小 明  ";
@@ -305,12 +402,28 @@ void ConfigValidationFallsBack() {
     config.snooze_duration_minutes = 1;
     config.idle_threshold_seconds = 3600;
     config.character_image_file = "character.png";
+    config.music_lead_seconds = 120;
+    config.music_file = "Tone.WAV";
     sanitized = rr::Sanitize(config);
     CHECK(sanitized.reminder_interval_minutes == 1440);
     CHECK(sanitized.rest_duration_minutes == 1);
     CHECK(sanitized.snooze_duration_minutes == 1);
     CHECK(sanitized.idle_threshold_seconds == 3600);
     CHECK(sanitized.character_image_file == "character.png");
+    CHECK(sanitized.music_lead_seconds == 120);
+    CHECK(sanitized.music_file == "Tone.WAV");
+
+    config.music_lead_seconds = 121;
+    config.music_file = "tone.mp3";
+    sanitized = rr::Sanitize(config);
+    CHECK(sanitized.music_lead_seconds == 10);
+    CHECK(sanitized.music_file.empty());
+
+    config.music_lead_seconds = 1;
+    config.music_file = "tone.wav";
+    sanitized = rr::Sanitize(config);
+    CHECK(sanitized.music_lead_seconds == 1);
+    CHECK(sanitized.music_file == "tone.wav");
 }
 
 }  // namespace
@@ -326,6 +439,9 @@ int main() {
     PauseFreezesRestAndExpansion();
     SleepCountsForIntervalOnly();
     CloseReminderEndsCycle();
+    RestMusicFiresOnceAtLeadTime();
+    RestMusicWaitsForResumedRest();
+    RestMusicDoesNotFireWhenRestEndsInOneStep();
     ConfigChangesApplyNextCycle();
     ConfigValidationFallsBack();
     GrowthReachesCapInSixtySeconds();

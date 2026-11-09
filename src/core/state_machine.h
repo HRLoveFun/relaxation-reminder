@@ -19,6 +19,9 @@ struct TickResult {
     bool paused_rest = false;
     bool resumed_rest = false;
     bool final_dismiss = false;
+    // Fires once per rest session when the countdown reaches the configured
+    // lead time, so the caller can play the rest-end chime.
+    bool rest_music_due = false;
 };
 
 // Timing model:
@@ -32,7 +35,8 @@ struct TickResult {
 class StateMachine {
 public:
     void Configure(uint32_t interval_minutes, uint32_t rest_minutes,
-                   uint32_t snooze_minutes, uint32_t idle_threshold_seconds);
+                   uint32_t snooze_minutes, uint32_t idle_threshold_seconds,
+                   uint32_t music_lead_seconds);
     void Start(uint64_t now_ms);
 
     TickResult Tick(uint64_t now_ms, uint32_t idle_ms);
@@ -70,16 +74,19 @@ private:
     bool suspended_ = false;
     bool timing_paused_ = false;
     bool snooze_used_ = false;
+    bool rest_music_played_ = false;
 
     uint32_t interval_ms_ = 0;
     uint32_t rest_ms_ = 0;
     uint32_t snooze_ms_ = 0;
     uint32_t idle_ms_ = 0;
+    uint32_t music_lead_ms_ = 0;
 
     uint32_t pending_interval_ms_ = 0;
     uint32_t pending_rest_ms_ = 0;
     uint32_t pending_snooze_ms_ = 0;
     uint32_t pending_idle_ms_ = 0;
+    uint32_t pending_music_lead_ms_ = 0;
 
     uint64_t last_tick_ms_ = 0;
     uint64_t remaining_ms_ = 0;

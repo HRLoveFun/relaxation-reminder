@@ -17,11 +17,12 @@ constexpr UINT kNameEditId = 3001;
 constexpr UINT kIntervalSliderId = 3002;
 constexpr UINT kRestSliderId = 3003;
 constexpr UINT kSnoozeSliderId = 3004;
+constexpr UINT kMusicCheckId = 3005;
 constexpr UINT kResetButtonId = 3006;
 constexpr UINT kCloseButtonId = 3008;
 
 constexpr int kClientWidth = 470;
-constexpr int kClientHeight = 232;
+constexpr int kClientHeight = 272;
 constexpr int kLabelX = 20;
 constexpr int kControlX = 118;
 constexpr int kSliderWidth = 240;
@@ -30,7 +31,8 @@ constexpr int kFirstRowY = 16;
 constexpr int kRowStep = 38;
 constexpr int kTextHeight = 30;
 constexpr int kEditHeight = 24;
-constexpr int kButtonTop = 184;
+constexpr int kMusicRowY = 168;
+constexpr int kButtonTop = 224;
 
 constexpr uint32_t kIntervalValues[] = {20, 30, 40, 50, 60};
 constexpr uint32_t kRestValues[] = {5, 10, 15};
@@ -57,7 +59,8 @@ bool SameConfig(const Config& left, const Config& right) {
            left.idle_threshold_seconds == right.idle_threshold_seconds &&
            left.autostart == right.autostart &&
            left.user_name == right.user_name &&
-           left.character_image_file == right.character_image_file;
+           left.character_image_file == right.character_image_file &&
+           left.music_enabled == right.music_enabled;
 }
 
 }  // namespace
@@ -123,6 +126,7 @@ void SettingsWindow::Destroy() {
     }
     hwnd_ = nullptr;
     name_edit_ = nullptr;
+    music_checkbox_ = nullptr;
     for (Slider& slider : sliders_) {
         slider.track = nullptr;
     }
@@ -221,6 +225,8 @@ void SettingsWindow::CreateControls() {
     sliders_[2] = {make_slider(kSnoozeSliderId),
                    &Config::snooze_duration_minutes, kSnoozeValues, 3};
     name_edit_ = make_edit(kNameEditId, 40);
+    music_checkbox_ =
+        make_button(kMusicCheckId, L"休息结束前播放提示音", BS_AUTOCHECKBOX);
     reset_button_ = make_button(kResetButtonId, L"恢复默认值", BS_PUSHBUTTON);
     close_button_ = make_button(kCloseButtonId, L"关闭", BS_DEFPUSHBUTTON);
 
@@ -238,8 +244,8 @@ void SettingsWindow::CreateControls() {
     // The panel uses a fixed light palette; classic (unthemed) controls keep
     // that palette even when Windows runs in dark mode.
     HWND controls[] = {sliders_[0].track, sliders_[1].track,
-                       sliders_[2].track, name_edit_,      reset_button_,
-                       close_button_};
+                       sliders_[2].track, name_edit_,      music_checkbox_,
+                       reset_button_,     close_button_};
     for (HWND control : controls) {
         if (control != nullptr) {
             SetWindowTheme(control, L"", L"");
@@ -262,8 +268,8 @@ void SettingsWindow::UpdateFonts() {
     font_ = new_font;
 
     HWND controls[] = {sliders_[0].track, sliders_[1].track,
-                       sliders_[2].track, name_edit_,      reset_button_,
-                       close_button_};
+                       sliders_[2].track, name_edit_,      music_checkbox_,
+                       reset_button_,     close_button_};
     for (HWND control : controls) {
         if (control != nullptr) {
             SendMessageW(control, WM_SETFONT,
@@ -297,6 +303,12 @@ void SettingsWindow::Layout() {
                    scale(kClientWidth - kControlX - 20), edit_height, TRUE);
     }
 
+    if (music_checkbox_ != nullptr) {
+        const int edit_height = scale(kEditHeight);
+        MoveWindow(music_checkbox_, scale(kLabelX), scale(kMusicRowY),
+                   scale(kClientWidth - kLabelX - 20), edit_height, TRUE);
+    }
+
     const int button_width = scale(92);
     const int button_height = scale(32);
     const int button_top = scale(kButtonTop);
@@ -325,13 +337,18 @@ void SettingsWindow::SetValues(const Config& config) {
     if (name_edit_ != nullptr) {
         SetWindowTextW(name_edit_, config.user_name.c_str());
     }
+    if (music_checkbox_ != nullptr) {
+        SendMessageW(music_checkbox_, BM_SETCHECK,
+                     config.music_enabled ? BST_CHECKED : BST_UNCHECKED, 0);
+    }
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 void SettingsWindow::RestoreDefaults() {
     // Reset is immediate and keeps the panel open. Autostart is owned by the
     // tray menu and idle_threshold_seconds is config-file only, so neither is
-    // touched here.
+    // touched here. The chosen chime file and lead time are kept as well;
+    // resetting them would silently delete a user-selected file.
     Config config = base_config_;
     config.reminder_interval_minutes = kDefaultReminderIntervalMinutes;
     config.rest_duration_minutes = kDefaultRestDurationMinutes;
@@ -378,12 +395,18 @@ void SettingsWindow::ApplyLive() {
         GetWindowTextW(name_edit_, buffer, _countof(buffer));
     }
     config.user_name = buffer;
+    if (music_checkbox_ != nullptr) {
+        config.music_enabled =
+            SendMessageW(music_checkbox_, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    }
     config = Sanitize(config);
 
     // The panel does not expose these fields; keep the values it was opened
     // with so a tray toggle or a config-file edit is not overwritten.
     config.idle_threshold_seconds = base_config_.idle_threshold_seconds;
     config.autostart = base_config_.autostart;
+    config.music_file = base_config_.music_file;
+    config.music_lead_seconds = base_config_.music_lead_seconds;
 
     if (!SameConfig(config, base_config_)) {
         base_config_ = config;
@@ -577,6 +600,12 @@ LRESULT SettingsWindow::HandleMessage(UINT message, WPARAM wparam,
                     NormalizeName();
                     return 0;
                 }
+            }
+            if (lparam != 0 &&
+                reinterpret_cast<HWND>(lparam) == music_checkbox_ &&
+                HIWORD(wparam) == BN_CLICKED) {
+                ApplyLive();
+                return 0;
             }
             break;
 
