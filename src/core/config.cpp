@@ -52,8 +52,8 @@ bool IsValidIdleSeconds(uint32_t value) {
     return value >= 1 && value <= kMaxIdleSeconds;
 }
 
-bool IsValidMusicLeadSeconds(uint32_t value) {
-    return value >= kMinMusicLeadSeconds && value <= kMaxMusicLeadSeconds;
+bool IsValidMusicPlaySeconds(uint32_t value) {
+    return value >= kMinMusicPlaySeconds && value <= kMaxMusicPlaySeconds;
 }
 
 bool IsSupportedMusicFileName(const std::string& name) {
@@ -100,8 +100,8 @@ Config Sanitize(const Config& value) {
         result.character_image_file.find_first_of("\\/") != std::string::npos) {
         result.character_image_file.clear();
     }
-    if (!IsValidMusicLeadSeconds(result.music_lead_seconds)) {
-        result.music_lead_seconds = kDefaultMusicLeadSeconds;
+    if (!IsValidMusicPlaySeconds(result.music_play_seconds)) {
+        result.music_play_seconds = kDefaultMusicPlaySeconds;
     }
     if (!IsSupportedMusicFileName(result.music_file)) {
         result.music_file.clear();

@@ -137,7 +137,7 @@ bool SaveConfig() {
                L"user_name=%ls\r\n"
                L"character_image_file=%ls\r\n"
                L"music_enabled=%u\r\n"
-               L"music_lead_seconds=%u\r\n"
+               L"music_play_seconds=%u\r\n"
                L"music_file=%ls\r\n",
                g_config.reminder_interval_minutes,
                g_config.rest_duration_minutes,
@@ -145,7 +145,7 @@ bool SaveConfig() {
                g_config.idle_threshold_seconds,
                g_config.autostart ? 1u : 0u, g_config.user_name.c_str(),
                image.c_str(), g_config.music_enabled ? 1u : 0u,
-               g_config.music_lead_seconds, music.c_str());
+               g_config.music_play_seconds, music.c_str());
 
     HANDLE file = CreateFileW(temp.c_str(), GENERIC_WRITE, 0, nullptr,
                               CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -209,8 +209,8 @@ void LoadConfig() {
     loaded.music_enabled =
         GetPrivateProfileIntW(L"general", L"music_enabled",
                               rr::kDefaultMusicEnabled ? 1 : 0, path.c_str()) != 0;
-    loaded.music_lead_seconds = GetPrivateProfileIntW(
-        L"general", L"music_lead_seconds", rr::kDefaultMusicLeadSeconds,
+    loaded.music_play_seconds = GetPrivateProfileIntW(
+        L"general", L"music_play_seconds", rr::kDefaultMusicPlaySeconds,
         path.c_str());
 
     wchar_t music[300] = {};
@@ -470,7 +470,7 @@ void ChooseRestSound() {
     dialog.lpstrFilter = L"WAV 音频 (*.wav)\0*.wav\0所有文件 (*.*)\0*.*\0\0";
     dialog.lpstrFile = file;
     dialog.nMaxFile = _countof(file);
-    dialog.lpstrTitle = L"选择提示音";
+    dialog.lpstrTitle = L"选择音乐";
     dialog.Flags =
         OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_EXPLORER | OFN_NOCHANGEDIR;
     if (!GetOpenFileNameW(&dialog)) {
@@ -488,7 +488,7 @@ void ResetRestSound() {
     const std::wstring old_name = Utf8ToWide(g_config.music_file);
     g_config.music_file.clear();
     SaveConfig();
-    rr::StopRestSound();
+    rr::StopRestMusic();
 
     if (!old_name.empty()) {
         DeleteFileW((SoundDir() + L"\\" + old_name).c_str());
@@ -502,11 +502,23 @@ std::wstring ConfiguredMusicPath() {
     return SoundDir() + L"\\" + Utf8ToWide(g_config.music_file);
 }
 
-void PlayRestMusic() {
+void StartRestMusicIfEnabled() {
     if (!g_config.music_enabled) {
         return;
     }
-    rr::PlayRestSound(ConfiguredMusicPath());
+    rr::StartRestMusic(ConfiguredMusicPath());
+}
+
+// Restart the loop after a global pause or a dismissed confirmation dialog,
+// but only if the rest-end music phase is still running and not fading.
+void ResumeRestMusicIfNeeded() {
+    if (!g_config.music_enabled || g_machine.timing_paused()) {
+        return;
+    }
+    if (g_machine.state() == rr::State::MusicPlaying &&
+        !g_machine.music_fading()) {
+        rr::StartRestMusic(ConfiguredMusicPath());
+    }
 }
 
 bool IsAutostartEnabled() {
@@ -595,6 +607,10 @@ void UpdateTrayTip() {
             case rr::State::RestPaused:
                 tip += L" - 休息暂停，离开键鼠继续";
                 break;
+            case rr::State::MusicPlaying:
+                tip += L" - 音乐 ";
+                tip += FormatClock(g_machine.music_remaining_seconds());
+                break;
         }
     }
 
@@ -635,7 +651,7 @@ bool ConfirmSnoozeReminder() {
 }
 
 void HandleSnooze() {
-    if (!g_machine.IsVisible() || g_machine.snooze_used()) {
+    if (!g_machine.CanSnooze()) {
         return;
     }
     // The confirmation dialog pumps WM_TIMER; freeze the countdowns so no
@@ -650,7 +666,7 @@ void HandleSnooze() {
     if (!g_machine.TrySnooze(GetTickCount64())) {
         return;
     }
-    rr::StopRestSound();
+    rr::StopRestMusic();
     if (g_reminder) {
         g_reminder->Hide();
     }
@@ -659,12 +675,20 @@ void HandleSnooze() {
 
 bool ConfirmCloseReminder() {
     wchar_t text[512] = {};
-    swprintf_s(text, _countof(text),
-               L"确定要关闭本次休息提醒吗？\n\n"
-               L"建议现在离开键鼠，休息 %u 分钟。\n\n"
-               L"关闭后：本次提醒立即结束，程序会在 %u 分钟后再次提醒你。",
-               g_config.rest_duration_minutes,
-               g_config.reminder_interval_minutes);
+    if (g_machine.state() == rr::State::MusicPlaying) {
+        swprintf_s(text, _countof(text),
+                   L"确定要结束本次休息吗？\n\n"
+                   L"休息已经结束，音乐正在播放。\n\n"
+                   L"关闭后：本次提醒立即结束，程序会在 %u 分钟后再次提醒你。",
+                   g_config.reminder_interval_minutes);
+    } else {
+        swprintf_s(text, _countof(text),
+                   L"确定要关闭本次休息提醒吗？\n\n"
+                   L"建议现在离开键鼠，休息 %u 分钟。\n\n"
+                   L"关闭后：本次提醒立即结束，程序会在 %u 分钟后再次提醒你。",
+                   g_config.rest_duration_minutes,
+                   g_config.reminder_interval_minutes);
+    }
 
     HWND owner =
         (g_reminder && g_reminder->visible()) ? g_reminder->hwnd() : g_hwnd;
@@ -678,17 +702,23 @@ void HandleCloseReminder() {
     if (!g_machine.IsVisible()) {
         return;
     }
-    // Same as snooze: the rest countdown and expansion must not advance while
-    // the confirmation dialog is open.
+    // Same as snooze: the rest/music countdown and expansion must not advance
+    // while the confirmation dialog is open. Pause the music as well, and
+    // resume it without the fade if the user cancels.
     const bool was_paused = g_machine.timing_paused();
+    const bool was_music = rr::RestMusicPlaying();
     g_machine.SetTimingPaused(true);
+    rr::StopRestMusic();
     const bool confirmed = ConfirmCloseReminder();
     g_machine.SetTimingPaused(was_paused);
     if (!confirmed) {
+        if (was_music) {
+            ResumeRestMusicIfNeeded();
+        }
         return;
     }
     g_machine.CloseReminder(GetTickCount64());
-    rr::StopRestSound();
+    rr::StopRestMusic();
     if (g_reminder) {
         g_reminder->Hide();
     }
@@ -704,7 +734,6 @@ void ApplySettings(const rr::Config& panel_config) {
     config.idle_threshold_seconds = g_config.idle_threshold_seconds;
     config.character_image_file = g_config.character_image_file;
     config.music_file = g_config.music_file;
-    config.music_lead_seconds = g_config.music_lead_seconds;
     config = rr::Sanitize(config);
     g_config = config;
     SaveConfig();
@@ -712,9 +741,9 @@ void ApplySettings(const rr::Config& panel_config) {
                         config.rest_duration_minutes,
                         config.snooze_duration_minutes,
                         config.idle_threshold_seconds,
-                        config.music_lead_seconds);
+                        config.music_play_seconds, config.music_enabled);
     if (!g_config.music_enabled) {
-        rr::StopRestSound();
+        rr::StopRestMusic();
     }
     if (g_reminder) {
         g_reminder->SetUserName(g_config.user_name);
@@ -751,12 +780,12 @@ void ShowTrayMenu() {
                 kMenuResetImage, L"恢复默认形象(&R)");
     AppendMenuW(menu,
                 MF_STRING | (g_config.music_enabled ? MF_CHECKED : MF_UNCHECKED),
-                kMenuToggleMusic, L"休息结束提示音(&M)");
-    AppendMenuW(menu, MF_STRING, kMenuChooseSound, L"选择提示音(&U)…");
+                kMenuToggleMusic, L"休息结束播放音乐(&M)");
+    AppendMenuW(menu, MF_STRING, kMenuChooseSound, L"选择音乐(&U)…");
     AppendMenuW(menu,
                 MF_STRING | (g_config.music_file.empty() ? MF_GRAYED
                                                         : MF_ENABLED),
-                kMenuResetSound, L"恢复默认提示音(&D)");
+                kMenuResetSound, L"恢复默认音乐(&D)");
     AppendMenuW(menu,
                 MF_STRING | (IsAutostartEnabled() ? MF_CHECKED : MF_UNCHECKED),
                 kMenuAutostart, L"开机自启(&A)");
@@ -798,11 +827,14 @@ void Tick() {
     if (result.show_reminder) {
         ShowReminderWindow();
     }
-    if (result.rest_music_due) {
-        PlayRestMusic();
+    if (result.music_start) {
+        StartRestMusicIfEnabled();
+    }
+    if (result.music_fade_out) {
+        rr::FadeOutRestMusic();
     }
     if (result.final_dismiss || result.hide_reminder) {
-        rr::StopRestSound();
+        rr::StopRestMusic();
         if (g_reminder) {
             g_reminder->Hide();
         }
@@ -810,12 +842,14 @@ void Tick() {
     }
     if (result.entered_rest || result.paused_rest || result.resumed_rest) {
         if (result.paused_rest) {
-            // Input means the user is active again; do not keep the chime
+            // Input means the user is active again; do not keep audio
             // playing against their attention.
-            rr::StopRestSound();
+            rr::StopRestMusic();
         }
         UpdateTrayTip();
     }
+
+    rr::ServiceRestMusic();
 
     if (g_reminder && g_reminder->visible() && g_machine.IsVisible()) {
         g_reminder->Update(now, g_machine);
@@ -891,7 +925,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam,
                     const bool paused = !g_machine.timing_paused();
                     g_machine.SetTimingPaused(paused);
                     if (paused) {
-                        rr::StopRestSound();
+                        rr::StopRestMusic();
+                    } else {
+                        ResumeRestMusicIfNeeded();
                     }
                     if (g_reminder && g_reminder->visible()) {
                         g_reminder->Update(GetTickCount64(), g_machine);
@@ -908,8 +944,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam,
                 case kMenuToggleMusic:
                     g_config.music_enabled = !g_config.music_enabled;
                     SaveConfig();
+                    // The switch applies immediately, including a rest that is
+                    // already running or a music phase in progress.
+                    g_machine.SetMusicEnabled(g_config.music_enabled);
                     if (!g_config.music_enabled) {
-                        rr::StopRestSound();
+                        rr::StopRestMusic();
+                    } else {
+                        ResumeRestMusicIfNeeded();
                     }
                     UpdateTrayTip();
                     return 0;
@@ -938,10 +979,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam,
 
         case WM_POWERBROADCAST:
             if (wparam == PBT_APMSUSPEND) {
-                rr::StopRestSound();
+                rr::StopRestMusic();
                 g_machine.OnSuspend(GetTickCount64());
             } else if (wparam == PBT_APMRESUMEAUTOMATIC) {
                 g_machine.OnResume(GetTickCount64());
+                ResumeRestMusicIfNeeded();
                 Tick();
             }
             return TRUE;
@@ -952,7 +994,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam,
 
         case WM_DESTROY:
             KillTimer(hwnd, kTickTimer);
-            rr::StopRestSound();
+            rr::StopRestMusic();
             RemoveTrayIcon();
             PostQuitMessage(0);
             return 0;
@@ -1064,7 +1106,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
                         g_config.rest_duration_minutes,
                         g_config.snooze_duration_minutes,
                         g_config.idle_threshold_seconds,
-                        g_config.music_lead_seconds);
+                        g_config.music_play_seconds, g_config.music_enabled);
     g_machine.Start(GetTickCount64());
     UpdateTrayTip();
 

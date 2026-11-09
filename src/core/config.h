@@ -11,12 +11,12 @@ inline constexpr uint32_t kDefaultSnoozeDurationMinutes = 5;
 inline constexpr uint32_t kDefaultIdleThresholdSeconds = 10;
 inline constexpr bool kDefaultAutostart = true;
 inline constexpr bool kDefaultMusicEnabled = true;
-inline constexpr uint32_t kDefaultMusicLeadSeconds = 10;
+inline constexpr uint32_t kDefaultMusicPlaySeconds = 60;
 
 inline constexpr uint32_t kMaxMinutes = 1440;
 inline constexpr uint32_t kMaxIdleSeconds = 3600;
-inline constexpr uint32_t kMinMusicLeadSeconds = 1;
-inline constexpr uint32_t kMaxMusicLeadSeconds = 120;
+inline constexpr uint32_t kMinMusicPlaySeconds = 30;
+inline constexpr uint32_t kMaxMusicPlaySeconds = 120;
 inline constexpr uint64_t kMaxMusicFileBytes = 5ull * 1024ull * 1024ull;
 
 inline constexpr wchar_t kDefaultUserName[] = L"芬宝";
@@ -32,16 +32,17 @@ struct Config {
     bool autostart = kDefaultAutostart;
     std::wstring user_name = kDefaultUserName;
     std::string character_image_file;
-    // Rest-end chime: enabled by default; lead time is config-file only, and
-    // music_file names a user WAV in the app data sound directory.
+    // Music that starts when the rest countdown ends and keeps the window
+    // open for music_play_seconds. music_file names a user WAV in the app
+    // data sound directory; empty means the embedded clip.
     bool music_enabled = kDefaultMusicEnabled;
-    uint32_t music_lead_seconds = kDefaultMusicLeadSeconds;
+    uint32_t music_play_seconds = kDefaultMusicPlaySeconds;
     std::string music_file;
 };
 
 bool IsValidMinutes(uint32_t value);
 bool IsValidIdleSeconds(uint32_t value);
-bool IsValidMusicLeadSeconds(uint32_t value);
+bool IsValidMusicPlaySeconds(uint32_t value);
 bool IsSupportedMusicFileName(const std::string& name);
 
 // True when the trimmed input is non-empty and has no control characters.

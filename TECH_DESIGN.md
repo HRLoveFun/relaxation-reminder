@@ -58,9 +58,9 @@
 
 - 语言/工具链：**C++17、MSVC v142（VS2019）、Windows SDK 10.0.19041、x64**。
 - 链接：`/MT` 静态 CRT，避免 VC++ 运行时分发；`/O2 /Gy /OPT:REF /OPT:ICF`，关闭 RTTI，异常仅在必要处使用。
-- 依赖：仅系统库 `user32.lib gdi32.lib gdiplus.lib comdlg32.lib comctl32.lib uxtheme.lib shell32.lib advapi32.lib shcore.lib winmm.lib delayimp.lib`，不引入任何第三方库。GDI+（`gdiplus.dll`）与 winmm 均为 Windows 自带组件；winmm 通过 `/DELAYLOAD` 延迟到首次播放提示音时加载。
+- 依赖：仅系统库 `user32.lib gdi32.lib gdiplus.lib comdlg32.lib comctl32.lib uxtheme.lib shell32.lib advapi32.lib shcore.lib winmm.lib delayimp.lib`，不引入任何第三方库。GDI+（`gdiplus.dll`）与 winmm 均为 Windows 自带组件；winmm 通过 `/DELAYLOAD` 延迟到首次播放音乐时加载。
 - 界面：原生 Win32 窗口 + 标准 `BUTTON` 控件 + GDI 绘制占位方块 + GDI+ 解码用户形象，不引入 UI 框架。
-- 体积预算：exe ≤450 KB（硬指标 1 MB）；资源为图标、版本信息与约 130 KB 内置提示音。
+- 体积预算：exe ≤550 KB（硬指标 1 MB）；资源为图标、版本信息与约 238 KB 内置音乐。
 
 ### 3.4 代码结构
 
@@ -75,7 +75,7 @@ src/
     platform.cpp           时钟、空闲检测、显示器、DPI
     reminder_window.cpp    提醒窗口与绘制
     character_image.cpp    自定义图片/动图加载、校验、逐帧绘制
-    rest_sound.cpp         休息结束提示音：WAV 校验、内置音与用户音播放
+    rest_sound.cpp         休息结束音乐：WAV 校验、内置/用户音乐 waveOut 流式播放与淡出
     settings_dialog.cpp    设置界面
     tray.cpp               托盘图标与菜单
     autostart.cpp          HKCU Run 读写
@@ -236,16 +236,22 @@ src/
 - 内容：“{user_name}，休息提醒已启动”、深灰说明“将在 `reminder_interval_minutes` 分钟后提醒你休息。”、浅灰提示“可在托盘图标上右键打开设置。”
 - 通过 `--remind-now` 测试强制弹出提醒时不显示启动提示，避免两个窗口重叠。
 
-### 7.6 休息结束提示音
+### 7.6 休息结束音乐
 
-- 触发：状态机在 `RestRunning` 且 `rest_remaining_ms_ <= music_lead_ms_` 时产生一次 `TickResult::rest_music_due`，每个休息会话最多一次；`RestPaused` 不触发，恢复空闲后仍可触发；同一 tick 直接归零并消失时不触发。
-- 播放：`PlaySoundW`。内置音用 `SND_RESOURCE | SND_ASYNC | SND_NODEFAULT`；用户 WAV 用 `SND_FILENAME | SND_ASYNC | SND_NODEFAULT`，校验失败或播放失败回退内置音。不循环，播放到文件结束。
-- 停止：`PlaySoundW(nullptr, nullptr, 0)`；在休息暂停（检测到键鼠输入）、手动关闭、延后、全局暂停计时、`PBT_APMSUSPEND`、程序退出、窗口最终消失时调用。
-- 延迟加载：exe 以 `/DELAYLOAD:winmm.dll` 链接，待机与首次提醒前不加载 winmm，空闲工作集零增量。
+- 状态机新增 `MusicPlaying`：`RestRunning` 倒计时归零且 `music_enabled` 为真时进入该状态，产生 `TickResult::music_start`，窗口保持可见；`music_enabled` 为假时保持旧行为，直接 `final_dismiss`。
+- 时长：`music_play_seconds`（30–120，默认 60），在 `Configure()` 中排队，下一个提醒周期生效；`music_enabled` 通过 `SetMusicEnabled()` 立即生效。
+- 结束：播放满 `music_play_seconds` 产生 `final_dismiss`；播放期间检测到键鼠输入（`idle_ms < idle_threshold`）即提前进入淡出。
+- 淡出：状态机在剩余 ≤ `kMusicFadeMs`（900 ms）时产生一次 `music_fade_out`，剩余时间截断为 900 ms，随后 `final_dismiss`；音频引擎自身淡出 600 ms，早于窗口关闭完成。
+- 标题：`MusicPlaying` 期间提醒标题为“生产队的驴都不敢这么歇！”，状态栏显示“音乐播放中 MM:SS / MM:SS”；其余状态为“{user_name}，休息一下”。
+- 暂停：全局暂停计时冻结音乐倒计时并停止音频，恢复后若仍在 `MusicPlaying` 且未淡出则从当前位置继续播放；二次确认框打开期间同样暂停。
+- 延后：`CanSnooze()` 在 `MusicPlaying` 期间返回 false，“延后”按钮置灰。
+- 播放：`waveOut` 流式播放（winmm，`/DELAYLOAD:winmm.dll`）。内存 WAV 解析后 4 个 40 ms `WAVEHDR` 循环排队，`WAVE_MAPPER`、`CALLBACK_NULL`，由 50 ms UI tick 中的 `ServiceRestMusic()` 回收并重新填充，避免回调线程。短音乐循环播放以覆盖 30–120 秒。
+- 淡出实现：软件音量包络（8-bit 无符号 / 16-bit 有符号缩放），对尚未排队的音频生效；`FadeOutRestMusic()` 记录当前样本位置，600 ms 线性降到 0。安全超时（淡出 + 2 s）后 `waveOutReset` / `waveOutUnprepareHeader` / `waveOutClose` 释放设备。
+- 停止：`StopRestMusic()` 在手动关闭、延后、暂停计时、`PBT_APMSUSPEND`、程序退出、窗口最终消失时调用。
 - 格式白名单：PCM WAV（`format=1`）、8/16 位、1~2 声道、8~48 kHz、`data` 块非空，单文件 ≤5 MB；只接受裸文件名，文件存放于 `%APPDATA%\RelaxationReminder\sound\`。压缩 WAV/MP3/AAC 不支持，避免 N 版编解码器缺失。
-- 内置音：`tools/make_sound.py` 纯数学生成 3.0 秒、22.05 kHz 单声道 16-bit 风铃/和弦（A5/C#6/E6/A6 加泛音），约 132 KB，编译进 exe；无版权、无元数据。
-- 音量：不提供单条音量控制（PlaySound 无此能力，waveOutSetVolume 为设备级），由系统音量决定。
-- 设置入口：设置面板增加“休息结束前播放提示音”复选框；托盘菜单增加勾选项、“选择提示音”“恢复默认提示音”。“恢复默认值”不改动提示音开关、用户文件与提前量。
+- 内置音乐：`src/resources/rest_music.wav`，24 kHz 单声道 16-bit PCM、5.07 秒、约 238 KB，以资源类型 `WAVE`、ID 2 编译进 exe；只含 RIFF/fmt/data 块。
+- 音量：不提供单条音量控制，由系统音量决定。
+- 设置入口：设置面板增加“音乐时长”拖动条（30–120，步长 10）与“休息结束时播放音乐”复选框；托盘菜单增加勾选项、“选择音乐”“恢复默认音乐”。“恢复默认值”将音乐时长恢复 60 秒，不改动音乐开关与用户文件。
 
 ## 8. 配置与持久化
 
@@ -262,7 +268,7 @@ autostart=1
 user_name=昵称
 character_image_file=
 music_enabled=1
-music_lead_seconds=10
+music_play_seconds=60
 music_file=
 ```
 
@@ -270,8 +276,8 @@ music_file=
 - `user_name` 写入前去除控制字符与首尾空格，超过 20 个字符截断；空值回退“昵称”。
 - 写入：先写 `config.ini.tmp`，再 `MoveFileEx(..., MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)` 原子替换，避免断电损坏。
 - `character_image_file` 启动时校验存在性与格式；不合法则清空该字段并回退内置形象。
-- `music_file` 播放前校验扩展名、存在性、大小与 WAV 头；不合法则回退内置提示音，配置字段保留到用户下次选择（避免误删）。
-- 存储预算：配置文件 ≤2 KB；未设置自定义形象时应用数据目录（配置 + 标记）≤16 KB；设置后用户形象单文件 ≤10 MB、用户提示音单文件 ≤5 MB；不写日志、不生成缩略图或额外缓存。
+- `music_file` 播放前校验扩展名、存在性、大小与 WAV 头；不合法则回退内置音乐，配置字段保留到用户下次选择（避免误删）。
+- 存储预算：配置文件 ≤2 KB；未设置自定义形象时应用数据目录（配置 + 标记）≤16 KB；设置后用户形象单文件 ≤10 MB、用户音乐单文件 ≤5 MB；不写日志、不生成缩略图或额外缓存。
 - `autostart` 与注册表保持一致：启动时若为 1 则确保注册表项存在并指向当前 exe 路径；为 0 则删除该项。
 
 ## 9. 打包、自启与单实例
@@ -321,7 +327,7 @@ music_file=
 
 - 统计范围：核心 exe 为 `RelaxationReminder.exe` 本体 + 内嵌资源；安装包为 `RelaxationReminder-Setup-<version>.exe` 单文件。均不含 Windows 自带的系统 DLL/运行库，不含用户自定义形象文件。不依赖 VC++ Redistributable。
 - 测量：`(Get-Item .\RelaxationReminder.exe).Length` 与 `(Get-Item .\dist\RelaxationReminder-Setup-<version>.exe).Length`，连续构建 3 次取最大值。
-- 目标：核心 exe ≤450 KB（硬指标 ≤1 MB）；安装包 ≤3 MB（单独记录，不计入 1 MB 判定）。当前构建含内置提示音实测 exe 约 385 KB（394,240 B）；安装包发布时实测记录。
+- 目标：核心 exe ≤550 KB（硬指标 ≤1 MB）；安装包 ≤3 MB（单独记录，不计入 1 MB 判定）。当前构建含内置音乐实测 exe 约 504 KB（516,096 B）；安装包发布时实测记录。
 
 ### 12.2 内存占用
 
@@ -332,7 +338,7 @@ music_file=
   - `Get-Counter '\Process(*)\Working Set - Private'`（性能计数器实例名会截断为 15 字符）。
 - 采样：启动后预热 5 分钟，空闲状态每 30 秒采样一次、持续 30 分钟，记录平均值与最大值；提醒显示期间每 5 秒采样一次、持续 5 分钟。
 - 判定：默认形象场景最大值 ≤ min(物理内存 1%, 20 MB)；加载自定义形象场景 ≤ min(物理内存 1%, 50 MB)。
-- 提示音：待机不加载 winmm（延迟加载），零增量；播放内置音的瞬时增量约 0.2~0.4 MB（winmm 映射 + 132 KB PCM）；用户 5 MB WAV 瞬时增量约 ≤6 MB。测量时在播放开始后以 50 ms 间隔轮询 `PrivateMemorySize64` 取峰值；自定义形象与提示音同时存在时目标 ≤60 MB。
+- 音乐：待机不加载 winmm（延迟加载），零增量；播放内置音乐的瞬时增量约 0.3~0.5 MB（winmm 映射 + 238 KB PCM + 4 个 40 ms 输出缓冲）；用户 5 MB WAV 瞬时增量约 ≤6 MB。测量时在播放开始后以 50 ms 间隔轮询 `PrivateMemorySize64` 取峰值；自定义形象与音乐同时存在时目标 ≤60 MB。
 
 ### 12.3 空闲 CPU
 
@@ -343,7 +349,7 @@ music_file=
 
 ### 12.4 存储占用
 
-- 默认：配置 ≤2 KB，`%APPDATA%\RelaxationReminder` 总大小 ≤16 KB；设置自定义形象后：用户形象单文件 ≤10 MB、目录总大小 ≤10.1 MB；设置提示音后：用户提示音单文件 ≤5 MB；两者同时设置时目录总大小 ≤15.1 MB。无日志、无缩略图缓存。
+- 默认：配置 ≤2 KB，`%APPDATA%\RelaxationReminder` 总大小 ≤16 KB；设置自定义形象后：用户形象单文件 ≤10 MB、目录总大小 ≤10.1 MB；设置音乐后：用户音乐单文件 ≤5 MB；两者同时设置时目录总大小 ≤15.1 MB。无日志、无缩略图缓存。
 - 测量：使用 7 天后统计目录大小。
 
 ### 12.5 功能验收清单
@@ -369,11 +375,11 @@ music_file=
 | T15 | 重复启动 | 不产生第二个进程，打开已有实例设置 |
 | T16 | 自定义静态图 | 选择后按比例显示，重启后保持；恢复默认后回到内置方块 |
 | T17 | 自定义动图/异常文件 | GIF 循环播放；损坏、超限或格式不支持时回退内置方块并提示 |
-| T18 | 休息剩余 10 秒 | 播放一次提示音；同一休息不重复；下一轮休息重新播放 |
-| T19 | 提示音停止条件 | 键鼠输入暂停、手动关闭、延后、暂停计时、休眠、退出时立即停止 |
-| T20 | 选择/恢复用户提示音 | 5 MB 内 PCM WAV 复制到 `sound` 目录并重启保持；恢复默认后删除文件并回退内置音 |
-| T21 | 非法/超大/压缩音频 | 拒绝并提示；用户文件被删除或损坏时回退内置音 |
-| T22 | 提示音内存 | 待机不加载 winmm；播放峰值符合预算，关闭窗口后回落 |
+| T18 | 休息结束进入音乐 | 倒计时归零后窗口保持打开、开始播放音乐、标题变为“生产队的驴都不敢这么歇！”；播满 `music_play_seconds` 后关闭并重新计时 |
+| T19 | 音乐淡出与停止 | 播放期间动键鼠音乐 0.6 s 内淡出、窗口约 0.9 s 内关闭；手动关闭、暂停计时、休眠、退出时立即停止；音乐期间“延后”置灰 |
+| T20 | 选择/恢复用户音乐 | 5 MB 内 PCM WAV 复制到 `sound` 目录并重启保持；恢复默认后删除文件并回退内置音乐 |
+| T21 | 非法/超大/压缩音频 | 拒绝并提示；用户文件被删除或损坏时回退内置音乐 |
+| T22 | 音乐内存 | 待机不加载 winmm；播放峰值符合预算，关闭窗口后回落 |
 
 ## 13. 风险、假设与待确认
 
@@ -415,7 +421,7 @@ music_file=
 11. 设置面板改为所见即所得（2026-11-06）：移除“保存/取消”，字段修改立即生效；显示名称为空或含控制字符时使用“牛马”。
 12. 开机自启只保留在托盘菜单（2026-11-06）：设置面板移除该行，“恢复默认值”不改动自启状态。
 13. 设置面板档位化（2026-11-06）：三个时间参数改为拖动条（提醒间隔 20–60 步长 10，休息/延后 5/10/15），移除右侧说明与红色校验提示；空闲阈值仅保留配置文件入口，重置不改动该值；全界面统一使用 Microsoft YaHei UI。
-14. 休息结束提示音（2026-11-09）：默认开启，倒计时剩余 10 秒播放一次；内置音由 `tools/make_sound.py` 生成并内嵌，用户可选 PCM WAV（≤5 MB）；播放用 `PlaySound` 并延迟加载 winmm；不提供单条音量；暂停/关闭/延后/休眠/退出时立即停止。`music_lead_seconds` 仅配置文件可改。
+14. 休息结束音乐（2026-11-09，同日修订）：取消 `music_lead_seconds`；休息倒计时归零后开始播放，时长由 `music_play_seconds`（30–120，默认 60）控制，面板拖动条可改；播放期间窗口保持打开、标题改为“生产队的驴都不敢这么歇！”；动键鼠即淡出并关闭；音乐关闭时倒计时结束即关闭窗口。内置音乐为用户提供的 5 秒片段（24 kHz 单声道 PCM，内嵌 exe），循环播放；用户可选 PCM WAV（≤5 MB）。播放由 `PlaySound` 改为 `waveOut` 流式播放以支持淡出，仍延迟加载 winmm；不提供单条音量。
 
 ## 16. 待确认事项
 

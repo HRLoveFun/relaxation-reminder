@@ -1,5 +1,7 @@
 #include "state_machine.h"
 
+#include <algorithm>
+
 #include "config.h"
 
 namespace rr {
@@ -20,12 +22,15 @@ uint32_t SecondsCeil(uint64_t ms) {
 void StateMachine::Configure(uint32_t interval_minutes, uint32_t rest_minutes,
                              uint32_t snooze_minutes,
                              uint32_t idle_threshold_seconds,
-                             uint32_t music_lead_seconds) {
+                             uint32_t music_play_seconds, bool music_enabled) {
     pending_interval_ms_ = MinutesToMs(interval_minutes);
     pending_rest_ms_ = MinutesToMs(rest_minutes);
     pending_snooze_ms_ = MinutesToMs(snooze_minutes);
     pending_idle_ms_ = idle_threshold_seconds * 1000u;
-    pending_music_lead_ms_ = music_lead_seconds * 1000u;
+    pending_music_ms_ = music_play_seconds * 1000u;
+    // The music switch is a user-facing toggle and applies immediately; the
+    // durations wait for the next reminder cycle.
+    music_enabled_ = music_enabled;
 }
 
 void StateMachine::Start(uint64_t now_ms) {
@@ -94,9 +99,18 @@ TickResult StateMachine::Tick(uint64_t now_ms, uint32_t idle_ms) {
                 state_ = State::RestPaused;
                 result.paused_rest = true;
             } else if (delta >= rest_remaining_ms_) {
-                result.final_dismiss = true;
-                result.hide_reminder = true;
-                EnterWait(now_ms);
+                if (music_enabled_ && music_ms_ > 0) {
+                    // Rest is over, but the window stays open while the music
+                    // plays. The caller starts playback on this tick.
+                    state_ = State::MusicPlaying;
+                    music_remaining_ms_ = music_ms_;
+                    music_fading_ = false;
+                    result.music_start = true;
+                } else {
+                    result.final_dismiss = true;
+                    result.hide_reminder = true;
+                    EnterWait(now_ms);
+                }
             } else {
                 rest_remaining_ms_ -= delta;
             }
@@ -109,15 +123,31 @@ TickResult StateMachine::Tick(uint64_t now_ms, uint32_t idle_ms) {
                 result.resumed_rest = true;
             }
             break;
-    }
 
-    // Fire at most once per rest session, only while the countdown is
-    // actually running. A paused rest resumes and can still reach this edge;
-    // a dismissed rest has already left RestRunning and will not.
-    if (state_ == State::RestRunning && !rest_music_played_ &&
-        rest_remaining_ms_ <= music_lead_ms_) {
-        rest_music_played_ = true;
-        result.rest_music_due = true;
+        case State::MusicPlaying:
+            expansion_elapsed_ms_ += delta;
+            if (!music_fading_ && idle_ms < idle_ms_) {
+                // The user is back: fade the music and let the last fade
+                // window run before the window disappears.
+                music_fading_ = true;
+                music_remaining_ms_ =
+                    std::min<uint64_t>(music_remaining_ms_, kMusicFadeMs);
+                result.music_fade_out = true;
+            } else if (!music_fading_ && music_remaining_ms_ <= kMusicFadeMs) {
+                // Natural end of the playback window: fade instead of
+                // cutting the loop off abruptly.
+                music_fading_ = true;
+                result.music_fade_out = true;
+            }
+
+            if (delta >= music_remaining_ms_) {
+                result.final_dismiss = true;
+                result.hide_reminder = true;
+                EnterWait(now_ms);
+            } else {
+                music_remaining_ms_ -= delta;
+            }
+            break;
     }
 
     return result;
@@ -125,7 +155,7 @@ TickResult StateMachine::Tick(uint64_t now_ms, uint32_t idle_ms) {
 
 bool StateMachine::TrySnooze(uint64_t now_ms) {
     (void)now_ms;
-    if (snooze_used_ || !IsVisible()) {
+    if (!CanSnooze()) {
         return false;
     }
 
@@ -133,6 +163,8 @@ bool StateMachine::TrySnooze(uint64_t now_ms) {
     state_ = State::SnoozeWait;
     remaining_ms_ = snooze_ms_;
     rest_remaining_ms_ = 0;
+    music_remaining_ms_ = 0;
+    music_fading_ = false;
     expansion_elapsed_ms_ = 0;
     return true;
 }
@@ -149,8 +181,8 @@ void StateMachine::OnSuspend(uint64_t now_ms) {
 }
 
 void StateMachine::OnResume(uint64_t now_ms) {
-    // Sleep counts toward the reminder interval, but not toward rest or
-    // window expansion. Visible states discard the sleep gap.
+    // Sleep counts toward the reminder interval, but not toward rest, music
+    // playback or window expansion. Visible states discard the sleep gap.
     if (IsVisible()) {
         last_tick_ms_ = now_ms;
     }
@@ -171,7 +203,11 @@ void StateMachine::SetTimingPaused(bool paused) {
 
 bool StateMachine::IsVisible() const {
     return state_ == State::ShowActive || state_ == State::RestRunning ||
-           state_ == State::RestPaused;
+           state_ == State::RestPaused || state_ == State::MusicPlaying;
+}
+
+bool StateMachine::CanSnooze() const {
+    return !snooze_used_ && IsVisible() && state_ != State::MusicPlaying;
 }
 
 uint32_t StateMachine::rest_remaining_seconds() const {
@@ -186,6 +222,20 @@ uint32_t StateMachine::rest_total_seconds() const {
         return 0;
     }
     return SecondsCeil(rest_ms_);
+}
+
+uint32_t StateMachine::music_remaining_seconds() const {
+    if (state_ != State::MusicPlaying) {
+        return 0;
+    }
+    return SecondsCeil(music_remaining_ms_);
+}
+
+uint32_t StateMachine::music_total_seconds() const {
+    if (state_ != State::MusicPlaying) {
+        return 0;
+    }
+    return SecondsCeil(music_ms_);
 }
 
 uint32_t StateMachine::interval_remaining_seconds() const {
@@ -205,9 +255,10 @@ void StateMachine::EnterWait(uint64_t now_ms) {
     state_ = State::WaitInterval;
     remaining_ms_ = interval_ms_;
     rest_remaining_ms_ = 0;
+    music_remaining_ms_ = 0;
+    music_fading_ = false;
     expansion_elapsed_ms_ = 0;
     snooze_used_ = false;
-    rest_music_played_ = false;
 }
 
 void StateMachine::EnterShow(uint64_t now_ms, bool from_snooze) {
@@ -216,7 +267,8 @@ void StateMachine::EnterShow(uint64_t now_ms, bool from_snooze) {
     state_ = State::ShowActive;
     expansion_elapsed_ms_ = 0;
     rest_remaining_ms_ = 0;
-    rest_music_played_ = false;
+    music_remaining_ms_ = 0;
+    music_fading_ = false;
     if (!from_snooze) {
         snooze_used_ = false;
     }
@@ -238,9 +290,9 @@ void StateMachine::ApplyPendingCycle() {
     idle_ms_ = pending_idle_ms_ != 0
                    ? pending_idle_ms_
                    : kDefaultIdleThresholdSeconds * 1000u;
-    music_lead_ms_ = pending_music_lead_ms_ != 0
-                         ? pending_music_lead_ms_
-                         : kDefaultMusicLeadSeconds * 1000u;
+    music_ms_ = pending_music_ms_ != 0
+                    ? pending_music_ms_
+                    : kDefaultMusicPlaySeconds * 1000u;
 }
 
 }  // namespace rr
