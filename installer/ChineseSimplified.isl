@@ -8,9 +8,6 @@
 ; Setup adds the periods automatically (appending a period would result in
 ; two periods being displayed).
 ;
-; Maintainer: Community
-; Email: (removed)
-; Github: (removed)
 ; Encoding: UTF-8
 ; Translation based on network resource
 ;
