@@ -2,15 +2,51 @@
 
 > 一个会在鼠标旁慢慢变大的休息提醒。到点提醒，真正离开键鼠才开始休息倒计时；轻量常驻、不抢焦点。
 
-> **默认安装方式：AI 智能体安装。** 把[提示词](#默认方式ai-智能体安装)交给 Claude Code、Codex CLI 等能执行本地命令的智能体，自动完成下载、校验、静默安装和启动。
-
 [![Release](https://img.shields.io/github/v/release/HRLoveFun/relaxation-reminder?display_name=tag&sort=semver)](https://github.com/HRLoveFun/relaxation-reminder/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20x64-0078D4)](#系统要求)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 **关键词：** 休息提醒 · 久坐提醒 · 护眼提醒 · 定时休息 · 轻量常驻 · 托盘工具 · 开机自启 · 自定义形象
 
-[下载最新版](https://github.com/HRLoveFun/relaxation-reminder/releases/latest) · [功能](#功能) · [安装](#安装) · [使用说明](#使用说明) · [配置](#配置) · [常见问题](#常见问题)
+[安装](#安装) · [功能](#功能) · [使用说明](#使用说明) · [配置](#配置) · [常见问题](#常见问题) · [下载最新版](https://github.com/HRLoveFun/relaxation-reminder/releases/latest)
+
+## 安装
+
+**默认方式：AI 智能体安装。** 把下面这段提示词交给 Claude Code、Codex CLI 等能执行本地命令的智能体即可：
+
+```text
+请在这台 Windows x64 电脑上安装并验证「休息提醒（Relaxation Reminder）」。先读取安装说明并严格照做：
+https://raw.githubusercontent.com/HRLoveFun/relaxation-reminder/main/INSTALL.md
+只从官方仓库下载，不关闭安全软件，不请求管理员权限；完成后按说明报告安装版本、路径和 SHA-256。
+```
+
+提示词故意保持简短：下载地址、校验方式、静默安装参数、验收标准和失败处理都在 [INSTALL.md](INSTALL.md) 里，由智能体自行读取。你只需要在最后确认托盘图标出现。
+
+- **前提**：64 位 Windows；智能体能执行本地命令并能访问 GitHub。
+- **安全约束**：安装包未做代码签名。智能体只会从官方 Release 下载、校验 SHA-256，不会关闭安全软件或请求管理员权限。
+- **智能体无法联网？** 使用下面的手动安装。
+
+### 手动安装（备用）
+
+1. 从 [Releases](https://github.com/HRLoveFun/relaxation-reminder/releases/latest) 下载 `RelaxationReminder-Setup-0.11.25.0.exe`。
+2. 双击安装。当前用户安装，无需管理员权限，默认目录 `%LOCALAPPDATA%\Programs\RelaxationReminder`；SmartScreen 提示时选“更多信息”→“仍要运行”。
+3. 安装后自动启动并常驻托盘。想立刻看效果：右键托盘图标 → **立即休息**。
+
+默认每 30 分钟提醒一次，休息 5 分钟，延后 5 分钟，空闲 10 秒判定开始休息。
+
+#### 命令行静默安装
+
+```powershell
+Start-Process -FilePath '.\RelaxationReminder-Setup-0.11.25.0.exe' `
+  -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait
+Start-Process "$env:LOCALAPPDATA\Programs\RelaxationReminder\RelaxationReminder.exe"
+```
+
+静默安装会跳过安装后的自动启动，因此需要第二行。完整步骤、SHA-256 校验与卸载命令见 [INSTALL.md](INSTALL.md)。
+
+## 系统要求
+
+Windows 10 1809 及以上，64 位。无需管理员权限，无需 .NET / Visual C++ 运行库（静态链接 CRT）。
 
 ## 为什么需要它
 
@@ -44,87 +80,6 @@
 5. 倒计时结束或手动关闭后窗口消失，重新等待 30 分钟。
 
 > 延后会让下一次提醒整体顺延。
-
-## 安装
-
-默认由 AI 智能体安装，手动安装作为备用方式保留。
-
-### 默认方式：AI 智能体安装
-
-前提：64 位 Windows、智能体能执行本地命令并访问 GitHub。安装包未做代码签名，提示词要求智能体只从官方 Release 下载、校验 SHA-256，且不得关闭安全软件或绕过系统提示。
-
-复制下面整段提示词发给智能体，最后确认托盘图标即可：
-
-```text
-请在我的 Windows x64 电脑上安装「休息提醒（Relaxation Reminder）」，并验证安装结果。这是一个常驻托盘的休息提醒工具，安装后默认每 30 分钟提醒一次。全程使用命令行完成，不要让我手动点击安装向导。
-
-安全约束（必须遵守）：
-1. 只从官方仓库 https://github.com/HRLoveFun/relaxation-reminder 的 Releases 下载，不使用任何第三方镜像或转载地址。
-2. 安装包未做代码签名。不要关闭 Windows Defender、SmartScreen，不要添加杀毒排除项，也不要用任何方式绕过系统安全提示。
-3. 以当前用户权限安装，不要请求管理员权限。如果某一步必须提权，停下来说明原因并等我确认。
-4. 下载失败、哈希不一致或安装退出码非 0 时停止，把错误原文告诉我，不要自行换源重试。
-5. 不要修改我的配置文件或系统设置（程序自身默认写入的开机自启项除外）。
-
-执行步骤：
-1. 确认系统为 64 位 Windows：
-   [System.Environment]::Is64BitOperatingSystem
-   不满足就停止并告诉我。
-2. 读取最新 Release 并找到安装包：
-   $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/HRLoveFun/relaxation-reminder/releases/latest' -Headers @{ 'User-Agent' = 'RelaxationReminder-Installer' }
-   $asset = $release.assets | Where-Object { $_.name -like 'RelaxationReminder-Setup-*.exe' } | Select-Object -First 1
-   如果找不到安装包，停止并报告。
-3. 下载到临时目录，并移除“来自 Internet”标记：
-   $dir = Join-Path $env:TEMP 'RelaxationReminder-Install'
-   New-Item -ItemType Directory -Force -Path $dir | Out-Null
-   $setup = Join-Path $dir $asset.name
-   curl.exe -L --fail --retry 3 -o $setup $asset.browser_download_url
-   Unblock-File -Path $setup
-4. 计算 SHA-256，并在 $release.body 中查找 SHA-256 对照：
-   (Get-FileHash $setup -Algorithm SHA256).Hash.ToLower()
-   如果 Release 说明没有给出哈希，记录计算结果并在最终报告中列出；不一致则停止。
-5. 静默安装（Inno Setup 参数；安装器会先请求已运行的旧版本退出，配置与自定义形象保留）：
-   $log = Join-Path $dir 'install.log'
-   $p = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',('/LOG="{0}"' -f $log)) -PassThru -Wait
-   退出码 0 或 3010 视为成功；其他值请读取 $log 后报告。
-6. 启动程序（静默安装不会自动启动）：
-   $exe = Join-Path $env:LOCALAPPDATA 'Programs\RelaxationReminder\RelaxationReminder.exe'
-   Start-Process $exe
-7. 验证：
-   - Get-Process RelaxationReminder 存在；
-   - Test-Path (Join-Path $env:APPDATA 'RelaxationReminder\config.ini') 为 True；
-   - (Get-Item $exe).VersionInfo.FileVersion 与 Release 版本一致；
-   - 托盘图标无法用脚本可靠确认，请让我看一下右下角托盘。
-8. 最终报告：安装版本、安装路径、配置路径、下载文件的 SHA-256、安装日志路径，以及如何打开设置（左键双击托盘图标）和卸载方式。
-
-如果安装失败且提示文件被占用，请提示我通过托盘菜单「退出」后重试，不要强制结束进程。
-```
-
-`Get-FileHash` 不可用时可用 `certutil -hashfile <文件> SHA256` 代替。
-
-### 手动安装（备用）
-
-1. 从 [Releases](https://github.com/HRLoveFun/relaxation-reminder/releases/latest) 下载 `RelaxationReminder-Setup-0.11.25.0.exe`。
-2. 双击安装。当前用户安装，无需管理员权限，默认目录 `%LOCALAPPDATA%\Programs\RelaxationReminder`；SmartScreen 提示时选“更多信息”→“仍要运行”。
-3. 安装后自动启动并常驻托盘。想立刻看效果：右键托盘图标 → **立即休息**。
-
-默认每 30 分钟提醒一次，休息 5 分钟，延后 5 分钟，空闲 10 秒判定开始休息。
-
-#### 命令行静默安装
-
-```powershell
-Start-Process -FilePath '.\RelaxationReminder-Setup-0.11.25.0.exe' `
-  -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait
-Start-Process "$env:LOCALAPPDATA\Programs\RelaxationReminder\RelaxationReminder.exe"
-```
-
-静默安装会跳过安装后的自动启动，因此需要第二行。卸载：
-
-```powershell
-Start-Process "$env:LOCALAPPDATA\Programs\RelaxationReminder\unins000.exe" `
-  -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
-```
-
-卸载默认保留 `%APPDATA%\RelaxationReminder` 中的配置与自定义形象。
 
 ## 使用说明
 
@@ -173,10 +128,6 @@ Start-Process "$env:LOCALAPPDATA\Programs\RelaxationReminder\unins000.exe" `
 - 自启默认开启，可在托盘关闭；每次启动按当前 exe 路径重写 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\RelaxationReminder`。
 - 从“设置 → 应用 → 已安装的应用”卸载；默认保留 `%APPDATA%\RelaxationReminder`，彻底清除需手动删除。
 - 覆盖安装会先请求正在运行的实例退出。
-
-## 系统要求
-
-Windows 10 1809 及以上，64 位。无需管理员权限，无需 .NET / Visual C++ 运行库（静态链接 CRT）。
 
 ## 配置
 
@@ -229,13 +180,14 @@ cmake --build build-cmake --config Release
 有意保留以便重装后继续使用；彻底删除请移除 `%APPDATA%\RelaxationReminder`。
 
 **可以让 AI 智能体帮我安装吗？**
-这就是默认方式：把[提示词](#默认方式ai-智能体安装)交给能执行本地命令的智能体即可。
+这就是默认方式：把[安装](#安装)里的简短提示词交给能执行本地命令的智能体即可。
 
 **支持 macOS / iOS 吗？**
 当前只提供 Windows 桌面端，macOS 与 iOS 在规划中。
 
 ## 项目文档
 
+- [INSTALL.md](INSTALL.md)：完整安装说明（AI 智能体与手动安装）
 - [AGENTS.md](AGENTS.md)：需求与功能定义
 - [TECH_DESIGN.md](TECH_DESIGN.md)：技术方案、状态机、测量方法
 - [PRODUCT_ASSESSMENT.md](PRODUCT_ASSESSMENT.md)：竞品与立项评估
