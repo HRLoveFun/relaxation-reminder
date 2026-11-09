@@ -15,7 +15,7 @@
 **默认方式：AI 智能体安装。** 把下面这段提示词交给 Claude Code、Codex CLI 等能执行本地命令的智能体即可：
 
 ```text
-请在这台 Windows x64 电脑上安装/更新并验证「休息提醒（Relaxation Reminder）」。先读取安装说明并严格照做：
+请在这台电脑上安装/更新并验证「休息提醒（Relaxation Reminder）」。先读取安装说明并严格照做：
 https://raw.githubusercontent.com/HRLoveFun/relaxation-reminder/main/INSTALL.md
 只从官方仓库下载，不关闭安全软件，不请求管理员权限；完成后按说明报告安装版本、路径和 SHA-256。
 ```
