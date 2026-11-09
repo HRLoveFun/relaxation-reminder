@@ -2,13 +2,15 @@
 
 > 一个会在鼠标旁慢慢变大的 Windows 11 休息提醒。到点提醒，真正离开键鼠才开始休息倒计时；轻量常驻、不抢焦点，不打断工作节奏。
 
+> **默认安装方式：让 AI 智能体安装。** 复制[一段提示词](#默认方式ai-智能体安装)发给 Claude Code、Codex CLI 等能执行本地命令的智能体，自动完成下载、校验、静默安装和启动，无需手动操作。
+
 [![Release](https://img.shields.io/github/v/release/HRLoveFun/relaxation-reminder?display_name=tag&sort=semver)](https://github.com/HRLoveFun/relaxation-reminder/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2011%20x64-0078D4)](#系统要求)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 **关键词：** Windows 11 休息提醒 · 久坐提醒 · 护眼提醒 · 定时休息 · 番茄钟替代 · 轻量常驻 · 托盘工具 · 开机自启 · 自定义形象 · GIF 动图
 
-[下载最新版](https://github.com/HRLoveFun/relaxation-reminder/releases/latest) · [功能](#功能) · [快速开始](#快速开始) · [使用说明](#使用说明) · [配置](#配置) · [常见问题](#常见问题)
+[下载最新版](https://github.com/HRLoveFun/relaxation-reminder/releases/latest) · [功能](#功能) · [安装](#安装) · [智能体安装](#默认方式ai-智能体安装) · [手动安装](#手动安装备用) · [使用说明](#使用说明) · [配置](#配置) · [常见问题](#常见问题)
 
 ![设置面板](docs/settings-panel.png)
 
@@ -48,7 +50,66 @@
 
 > 延后会使下一次提醒整体顺延：下一次计时从本次提醒“最终消失”后开始。
 
-## 快速开始
+## 安装
+
+默认安装方式是由 **AI 智能体**完成：把一段提示词交给 Claude Code、Codex CLI、Cursor、Windsurf 等能执行本地命令的智能体，它会自动下载、校验、静默安装并启动，无需手动下载或点击安装向导。手动安装作为备用方式保留。
+
+### 默认方式：AI 智能体安装
+
+前提：Windows 11 x64、智能体有本地命令执行权限、能访问 GitHub。安装包未做代码签名，提示词要求智能体只从官方 Release 下载、校验 SHA-256，且不得关闭安全软件或绕过系统提示。
+
+复制下面整段提示词发给智能体，你只需要在最后确认托盘图标：
+
+```text
+请在我的 Windows 11 x64 电脑上安装「休息提醒（Relaxation Reminder）」，并验证安装结果。这是一个常驻托盘的休息提醒工具，安装后默认每 30 分钟提醒一次。全程使用命令行完成，不要让我手动点击安装向导。
+
+安全约束（必须遵守）：
+1. 只从官方仓库 https://github.com/HRLoveFun/relaxation-reminder 的 Releases 下载，不使用任何第三方镜像或转载地址。
+2. 安装包未做代码签名。不要关闭 Windows Defender、SmartScreen，不要添加杀毒排除项，也不要用任何方式绕过系统安全提示。
+3. 以当前用户权限安装，不要请求管理员权限。如果某一步必须提权，停下来说明原因并等我确认。
+4. 下载失败、哈希不一致或安装退出码非 0 时停止，把错误原文告诉我，不要自行换源重试。
+5. 不要修改我的配置文件或系统设置（程序自身默认写入的开机自启项除外）。
+
+执行步骤：
+1. 确认系统为 Windows 11 x64：
+   [System.Environment]::Is64BitOperatingSystem
+   (Get-CimInstance Win32_OperatingSystem).Caption
+   不满足就停止并告诉我。
+2. 读取最新 Release 并找到安装包：
+   $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/HRLoveFun/relaxation-reminder/releases/latest' -Headers @{ 'User-Agent' = 'RelaxationReminder-Installer' }
+   $asset = $release.assets | Where-Object { $_.name -like 'RelaxationReminder-Setup-*.exe' } | Select-Object -First 1
+   如果找不到安装包，停止并报告。
+3. 下载到临时目录，并移除“来自 Internet”标记：
+   $dir = Join-Path $env:TEMP 'RelaxationReminder-Install'
+   New-Item -ItemType Directory -Force -Path $dir | Out-Null
+   $setup = Join-Path $dir $asset.name
+   curl.exe -L --fail --retry 3 -o $setup $asset.browser_download_url
+   Unblock-File -Path $setup
+4. 计算 SHA-256，并在 $release.body 中查找 SHA-256 对照：
+   (Get-FileHash $setup -Algorithm SHA256).Hash.ToLower()
+   如果 Release 说明没有给出哈希，记录计算结果并在最终报告中列出；不一致则停止。
+5. 静默安装（Inno Setup 参数；安装器会先请求已运行的旧版本退出，配置与自定义形象保留）：
+   $log = Join-Path $dir 'install.log'
+   $p = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',('/LOG="{0}"' -f $log)) -PassThru -Wait
+   退出码 0 或 3010 视为成功；其他值请读取 $log 后报告。
+6. 启动程序（静默安装不会自动启动）：
+   $exe = Join-Path $env:LOCALAPPDATA 'Programs\RelaxationReminder\RelaxationReminder.exe'
+   Start-Process $exe
+7. 验证：
+   - Get-Process RelaxationReminder 存在；
+   - Test-Path (Join-Path $env:APPDATA 'RelaxationReminder\config.ini') 为 True；
+   - (Get-Item $exe).VersionInfo.FileVersion 与 Release 版本一致；
+   - 托盘图标无法用脚本可靠确认，请让我看一下右下角托盘。
+8. 最终报告：安装版本、安装路径、配置文件路径、下载文件的 SHA-256、安装日志路径，以及如何打开设置（左键双击托盘图标）和卸载方式。
+
+如果安装失败且提示文件被占用，请提示我通过托盘菜单「退出」后重试，不要强制结束进程。
+```
+
+提示：如果环境的 `Get-FileHash` 不可用，可用 `certutil -hashfile <文件> SHA256` 代替；两条命令输出一致即可。
+
+### 手动安装（备用）
+
+以下是智能体执行的同一套操作，供不想使用智能体时手动完成：
 
 1. 打开 [Releases](https://github.com/HRLoveFun/relaxation-reminder/releases/latest)，下载 `RelaxationReminder-Setup-0.11.25.0.exe`。
 2. 双击安装。安装为当前用户，无需管理员权限，默认目录 `%LOCALAPPDATA%\Programs\RelaxationReminder`。
@@ -58,6 +119,25 @@
 6. 想修改间隔：提醒窗口左下角“设置”，或右键托盘图标 → **设置**。
 
 安装完成后默认每 30 分钟提醒一次，休息 5 分钟，延后 5 分钟，键鼠空闲 10 秒判定为开始休息。
+
+#### 命令行静默安装
+
+已经下载好安装包、只想跳过向导时，可以在安装包所在目录执行：
+
+```powershell
+Start-Process -FilePath '.\RelaxationReminder-Setup-0.11.25.0.exe' `
+  -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait
+Start-Process "$env:LOCALAPPDATA\Programs\RelaxationReminder\RelaxationReminder.exe"
+```
+
+静默安装会跳过安装完成后的“启动程序”，因此需要第二行手动启动。卸载：
+
+```powershell
+Start-Process "$env:LOCALAPPDATA\Programs\RelaxationReminder\unins000.exe" `
+  -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+```
+
+卸载仍保留 `%APPDATA%\RelaxationReminder` 中的配置与自定义形象。
 
 ## 使用说明
 
@@ -166,8 +246,8 @@ cmake --build build-cmake --config Release
 
 ## 常见问题
 
-**Windows 提示“Windows 已保护你的电脑”，无法安装？**
-安装包未做代码签名。点击“更多信息”→“仍要运行”即可。
+**手动安装时 Windows 提示“Windows 已保护你的电脑”，无法安装？**
+安装包未做代码签名。点击“更多信息”→“仍要运行”即可。智能体安装提示词会先移除“来自 Internet”标记并静默安装，通常不会弹出该提示。
 
 **为什么提醒窗口越来越大？**
 这是设计的一部分：如果提醒被忽略，窗口会持续扩大以占据视野，最多到工作区面积的 30%。开始休息、延后或关闭后即停止。
@@ -183,6 +263,9 @@ cmake --build build-cmake --config Release
 
 **卸载后配置还在？**
 这是有意保留的，方便重装后继续使用。彻底删除请移除 `%APPDATA%\RelaxationReminder`。
+
+**可以让 AI 智能体帮我安装吗？**
+这就是默认安装方式。复制[智能体安装](#默认方式ai-智能体安装)中的提示词，发给 Claude Code、Codex CLI、Cursor 等能执行本地命令的智能体即可；它会从官方 Release 下载、校验 SHA-256、静默安装并启动。提示词要求智能体不关闭安全软件、不请求管理员权限，遇到哈希不一致或安装失败时必须停止并报告。不想使用智能体时，可按[手动安装](#手动安装备用)操作。
 
 **支持 macOS / iOS 吗？**
 当前只实现 Windows 11 桌面端，macOS 与 iOS 在规划中。
