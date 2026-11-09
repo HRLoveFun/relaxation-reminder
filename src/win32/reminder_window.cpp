@@ -101,6 +101,9 @@ bool ReminderWindow::Create(HINSTANCE instance, HWND owner) {
 
     WNDCLASSEXW window_class = {};
     window_class.cbSize = sizeof(window_class);
+    // Redraw the whole client area on every resize so the previous frame's
+    // border, text and image cannot linger at the old size.
+    window_class.style = CS_HREDRAW | CS_VREDRAW;
     window_class.lpfnWndProc = WndProc;
     window_class.hInstance = instance;
     window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
@@ -261,9 +264,11 @@ void ReminderWindow::Update(uint64_t now_ms, const StateMachine& machine) {
     side = ClampInt(side, 1, std::min(work_width, work_height));
 
     if (side != current_side_) {
-        // Resizing already invalidates the full client area; only the status
-        // line needs an explicit repaint when its text changes.
         ResizeTo(side);
+        // A size change only exposes the new border area, so the previous
+        // border and background would remain inside the window. Repaint the
+        // whole client area; the off-screen buffer keeps this flicker-free.
+        InvalidateRect(hwnd_, nullptr, FALSE);
     }
 
     if (character_.Tick(now_ms)) {
