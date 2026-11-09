@@ -2,7 +2,7 @@
 ; Default deployment path: the AI-agent prompt in README downloads the latest
 ; release, verifies its SHA-256, and runs this installer with /VERYSILENT.
 ; This installer remains the manual fallback path.
-; Build: "C:\Users\<user>\AppData\Local\Programs\Inno Setup 6\ISCC.exe" installer\RelaxationReminder.iss
+; Build: "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" installer\RelaxationReminder.iss
 ; Output: dist\RelaxationReminder-Setup-<version>.exe
 
 #define MyAppName "休息提醒"

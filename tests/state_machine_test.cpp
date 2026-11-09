@@ -264,7 +264,7 @@ void ConfigValidationFallsBack() {
     CHECK(sanitized.user_name == std::wstring(20, L'宝'));
 
     config.reminder_interval_minutes = 1440;
-    config.user_name = L"芬宝";
+    config.user_name = L"测试";
     config.rest_duration_minutes = 1;
     config.snooze_duration_minutes = 1;
     config.idle_threshold_seconds = 3600;
