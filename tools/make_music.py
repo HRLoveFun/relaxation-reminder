@@ -1,8 +1,10 @@
 """Generate src/resources/rest_music.wav, the built-in rest-end music.
 
 The clip is synthesized from scratch (no samples, no third-party audio). It
-recreates only the first two seconds of the reference chime: a 1049 Hz tone
-with 2449 Hz and 4131 Hz partials that die away faster than the fundamental.
+recreates the first two seconds of the reference chime with a lighter, softer
+character: a 1049 Hz tone with 2449 Hz and 4131 Hz partials, a gentler attack
+and a slightly longer, even decay so the partials melt into the fundamental
+instead of ringing out brightly.
 
 Usage: python tools/make_music.py
 """
@@ -19,6 +21,16 @@ RATE = 24000
 DURATION = 2.0
 PEAK = 0.95
 
+FUNDAMENTAL = 1049.0
+# (frequency multiple, amplitude, decay seconds). The partials are quieter and
+# decay only a little faster than the fundamental, which keeps the timbre
+# soft rather than piercing.
+PARTIALS = [
+    (1.0, 1.00, 2.6),
+    (2.335, 0.22, 1.4),
+    (3.938, 0.24, 1.1),
+]
+
 
 def render() -> list[float]:
     buf = [0.0] * int(RATE * DURATION)
@@ -29,11 +41,12 @@ def render() -> list[float]:
         if idx >= len(buf):
             break
         t = k / RATE
-        phase += 2 * math.pi * 1049.0 / RATE
-        env = min(1.0, t / 0.05) * math.exp(-t / 2.9)
-        value = (math.exp(-t / 2.9) * math.sin(phase) +
-                 0.40 * math.exp(-t / 0.85) * math.sin(2.335 * phase) +
-                 0.48 * math.exp(-t / 0.70) * math.sin(3.938 * phase))
+        phase += 2 * math.pi * FUNDAMENTAL / RATE
+        # Soft 120 ms attack, then a gentle exponential decay.
+        env = min(1.0, t / 0.12) * math.exp(-t / 2.4)
+        value = 0.0
+        for mult, amp, decay in PARTIALS:
+            value += amp * math.exp(-t / decay) * math.sin(mult * phase)
         buf[idx] += 7600.0 * env * value
     return buf
 
