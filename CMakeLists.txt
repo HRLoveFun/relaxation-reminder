@@ -34,7 +34,7 @@ target_compile_definitions(RelaxationReminder PRIVATE
 )
 
 target_compile_options(RelaxationReminder PRIVATE
-    $<$<CXX_COMPILER_ID:MSVC>:/W4;/EHsc;/utf-8;/permissive->
+    $<$<CXX_COMPILER_ID:MSVC>:/W4;/EHsc;/utf-8;/permissive-;/experimental:deterministic;"/pathmap:${CMAKE_SOURCE_DIR}=.">
 )
 
 if(RR_TEST_MODE)

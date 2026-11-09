@@ -34,7 +34,7 @@ if not exist build mkdir build
 rc /nologo /fo build\app.res src\resources\app.rc
 if errorlevel 1 exit /b 1
 
-cl /nologo /std:c++17 /permissive- /utf-8 /O2 /MT /W4 /EHsc /Isrc ^
+cl /nologo /std:c++17 /permissive- /utf-8 /O2 /MT /W4 /EHsc /Isrc /experimental:deterministic "/pathmap:%~dp0=." ^
     /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /DNOMINMAX %EXTRA_DEFS% ^
     /Fo:build\ /Fe:build\RelaxationReminder.exe ^
     src\win32\main.cpp src\win32\reminder_window.cpp src\win32\character_image.cpp ^
@@ -75,7 +75,7 @@ exit /b 0
 :run_unit_tests
 echo.
 if not exist build\test mkdir build\test
-cl /nologo /std:c++17 /permissive- /utf-8 /O2 /MT /W4 /EHsc /Isrc ^
+cl /nologo /std:c++17 /permissive- /utf-8 /O2 /MT /W4 /EHsc /Isrc /experimental:deterministic "/pathmap:%~dp0=." ^
     /Fo:build\test\ /Fe:build\state_machine_test.exe ^
     tests\state_machine_test.cpp src\core\config.cpp src\core\state_machine.cpp src\core\growth.cpp
 if errorlevel 1 exit /b 1
