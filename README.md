@@ -2,13 +2,15 @@
 
 > 一个会在鼠标旁慢慢变大的 Windows 11 休息提醒。到点提醒，真正离开键鼠才开始休息倒计时；轻量常驻、不抢焦点，不打断工作节奏。
 
+> **默认安装方式：让 AI 智能体安装。** 复制[一段提示词](#默认方式ai-智能体安装)发给 Claude Code、Codex CLI 等能执行本地命令的智能体，自动完成下载、校验、静默安装和启动，无需手动操作。
+
 [![Release](https://img.shields.io/github/v/release/HRLoveFun/relaxation-reminder?display_name=tag&sort=semver)](https://github.com/HRLoveFun/relaxation-reminder/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2011%20x64-0078D4)](#系统要求)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 **关键词：** Windows 11 休息提醒 · 久坐提醒 · 护眼提醒 · 定时休息 · 番茄钟替代 · 轻量常驻 · 托盘工具 · 开机自启 · 自定义形象 · GIF 动图
 
-[下载最新版](https://github.com/HRLoveFun/relaxation-reminder/releases/latest) · [功能](#功能) · [快速开始](#快速开始) · [智能体安装](#智能体安装复制提示词即可) · [使用说明](#使用说明) · [配置](#配置) · [常见问题](#常见问题)
+[下载最新版](https://github.com/HRLoveFun/relaxation-reminder/releases/latest) · [功能](#功能) · [安装](#安装) · [智能体安装](#默认方式ai-智能体安装) · [手动安装](#手动安装备用) · [使用说明](#使用说明) · [配置](#配置) · [常见问题](#常见问题)
 
 ![设置面板](docs/settings-panel.png)
 
@@ -48,22 +50,15 @@
 
 > 延后会使下一次提醒整体顺延：下一次计时从本次提醒“最终消失”后开始。
 
-## 快速开始
+## 安装
 
-1. 打开 [Releases](https://github.com/HRLoveFun/relaxation-reminder/releases/latest)，下载 `RelaxationReminder-Setup-0.11.25.0.exe`。
-2. 双击安装。安装为当前用户，无需管理员权限，默认目录 `%LOCALAPPDATA%\Programs\RelaxationReminder`。
-3. 如果 Windows 显示 SmartScreen 提示，点击“更多信息”→“仍要运行”（安装包未做代码签名）。
-4. 安装完成后程序会自动启动，并常驻系统托盘。
-5. 想立刻看效果：右键托盘图标 → **立即休息**。
-6. 想修改间隔：提醒窗口左下角“设置”，或右键托盘图标 → **设置**。
+默认安装方式是由 **AI 智能体**完成：把一段提示词交给 Claude Code、Codex CLI、Cursor、Windsurf 等能执行本地命令的智能体，它会自动下载、校验、静默安装并启动，无需手动下载或点击安装向导。手动安装作为备用方式保留。
 
-安装完成后默认每 30 分钟提醒一次，休息 5 分钟，延后 5 分钟，键鼠空闲 10 秒判定为开始休息。
+### 默认方式：AI 智能体安装
 
-## 智能体安装（复制提示词即可）
+前提：Windows 11 x64、智能体有本地命令执行权限、能访问 GitHub。安装包未做代码签名，提示词要求智能体只从官方 Release 下载、校验 SHA-256，且不得关闭安全软件或绕过系统提示。
 
-如果你在用 Claude Code、Codex CLI、Cursor、Windsurf 等能够执行本地命令的 AI 智能体，不必手动下载和点击安装向导：把下面整段提示词发给它即可。智能体会完成下载、SHA-256 校验（Release 说明提供时）、静默安装和启动，你只需要在最后确认托盘图标。
-
-前提：Windows 11 x64、智能体有本地命令执行权限、能访问 GitHub。安装包未做代码签名，提示词已明确要求智能体只从官方 Release 下载、校验哈希，并且不得关闭安全软件或绕过系统提示。
+复制下面整段提示词发给智能体，你只需要在最后确认托盘图标：
 
 ```text
 请在我的 Windows 11 x64 电脑上安装「休息提醒（Relaxation Reminder）」，并验证安装结果。这是一个常驻托盘的休息提醒工具，安装后默认每 30 分钟提醒一次。全程使用命令行完成，不要让我手动点击安装向导。
@@ -112,7 +107,20 @@
 
 提示：如果环境的 `Get-FileHash` 不可用，可用 `certutil -hashfile <文件> SHA256` 代替；两条命令输出一致即可。
 
-### 手动静默安装
+### 手动安装（备用）
+
+以下是智能体执行的同一套操作，供不想使用智能体时手动完成：
+
+1. 打开 [Releases](https://github.com/HRLoveFun/relaxation-reminder/releases/latest)，下载 `RelaxationReminder-Setup-0.11.25.0.exe`。
+2. 双击安装。安装为当前用户，无需管理员权限，默认目录 `%LOCALAPPDATA%\Programs\RelaxationReminder`。
+3. 如果 Windows 显示 SmartScreen 提示，点击“更多信息”→“仍要运行”（安装包未做代码签名）。
+4. 安装完成后程序会自动启动，并常驻系统托盘。
+5. 想立刻看效果：右键托盘图标 → **立即休息**。
+6. 想修改间隔：提醒窗口左下角“设置”，或右键托盘图标 → **设置**。
+
+安装完成后默认每 30 分钟提醒一次，休息 5 分钟，延后 5 分钟，键鼠空闲 10 秒判定为开始休息。
+
+#### 命令行静默安装
 
 已经下载好安装包、只想跳过向导时，可以在安装包所在目录执行：
 
@@ -238,8 +246,8 @@ cmake --build build-cmake --config Release
 
 ## 常见问题
 
-**Windows 提示“Windows 已保护你的电脑”，无法安装？**
-安装包未做代码签名。点击“更多信息”→“仍要运行”即可。
+**手动安装时 Windows 提示“Windows 已保护你的电脑”，无法安装？**
+安装包未做代码签名。点击“更多信息”→“仍要运行”即可。智能体安装提示词会先移除“来自 Internet”标记并静默安装，通常不会弹出该提示。
 
 **为什么提醒窗口越来越大？**
 这是设计的一部分：如果提醒被忽略，窗口会持续扩大以占据视野，最多到工作区面积的 30%。开始休息、延后或关闭后即停止。
@@ -257,7 +265,7 @@ cmake --build build-cmake --config Release
 这是有意保留的，方便重装后继续使用。彻底删除请移除 `%APPDATA%\RelaxationReminder`。
 
 **可以让 AI 智能体帮我安装吗？**
-可以。复制[智能体安装](#智能体安装复制提示词即可)中的提示词，发给 Claude Code、Codex CLI、Cursor 等能执行本地命令的智能体即可；它会从官方 Release 下载、校验 SHA-256、静默安装并启动。提示词要求智能体不关闭安全软件、不请求管理员权限，遇到哈希不一致或安装失败时必须停止并报告。
+这就是默认安装方式。复制[智能体安装](#默认方式ai-智能体安装)中的提示词，发给 Claude Code、Codex CLI、Cursor 等能执行本地命令的智能体即可；它会从官方 Release 下载、校验 SHA-256、静默安装并启动。提示词要求智能体不关闭安全软件、不请求管理员权限，遇到哈希不一致或安装失败时必须停止并报告。不想使用智能体时，可按[手动安装](#手动安装备用)操作。
 
 **支持 macOS / iOS 吗？**
 当前只实现 Windows 11 桌面端，macOS 与 iOS 在规划中。

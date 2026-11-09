@@ -7,7 +7,7 @@
 
 ## 1. 结论摘要
 
-1. Win11 端采用 **C++17 + 原生 Win32 API**，单进程、无第三方库、静态链接 CRT（`/MT`）；核心程序为单个 exe（约 250 KB），通过每用户 Inno Setup 安装包分发（约 2.2 MB），不提供便携版。
+1. Win11 端采用 **C++17 + 原生 Win32 API**，单进程、无第三方库、静态链接 CRT（`/MT`）；核心程序为单个 exe（约 250 KB）。默认由 AI 智能体按 README 提示词自动安装；手动备用方式为每用户 Inno Setup 安装包（约 2.2 MB）。不提供便携版。
 2. 计时全部基于单调时钟 `GetTickCount64`；键鼠空闲检测使用 `GetLastInputInfo`，轮询周期 50 ms，不装全局钩子；空闲阈值由 `idle_threshold_seconds` 配置，默认 10 秒。
 3. 提醒窗口从鼠标位置出现，面积按 `A(t)=A0·e^{kt}` 增长，60 秒达到所在显示器工作区面积的 30% 后停止。
 4. 状态机、扩大曲线、配置校验放在可移植的 `core/` 中，macOS 用 ObjC++ 复用；iOS 因系统限制用 Swift 重写精简逻辑。
@@ -29,7 +29,7 @@
 | 延后按钮 | 重新弹出后不可延后 | 按钮保留并禁用置灰 |
 | 参数修改 | 未定义 | 下一个提醒周期生效 |
 | 占位资源 | 卡通形象占位图 | 默认程序绘制正方形；支持用户添加 PNG/JPEG/BMP/GIF（含动图），失败回退内置图 |
-| 发布形态 | 未定义 | 每用户安装包（Inno Setup）+ `HKCU\...\Run` 自启；卸载保留配置与形象 |
+| 发布形态 | 未定义 | 默认 AI 智能体自动安装；备用每用户安装包（Inno Setup）+ `HKCU\...\Run` 自启；卸载保留配置与形象 |
 | 空闲阈值 | 固定 10 秒 | 第 4 个参数 `idle_threshold_seconds`，默认 10 秒，可配置 |
 | iOS 体积 | 统一 1 MB | 允许例外，iOS 单列记录 |
 | 立即休息 | 未定义 | 托盘菜单“立即休息”，点击立即显示提醒窗口 |
@@ -253,13 +253,14 @@ character_image_file=
 
 ## 9. 打包、自启与单实例
 
-- 发布形态：单一安装包 `RelaxationReminder-Setup-<version>.exe`（Inno Setup 6 编译，每用户安装，无需管理员权限），内含单个核心程序 `RelaxationReminder.exe`（无 DLL、无外部资源目录）。不提供便携版，避免从压缩包临时目录运行、自启路径失效和升级残留。
+- 发布形态：默认由 AI 智能体按 README 提示词自动安装；手动备用为单一安装包 `RelaxationReminder-Setup-<version>.exe`（Inno Setup 6 编译，每用户安装，无需管理员权限），内含单个核心程序 `RelaxationReminder.exe`（无 DLL、无外部资源目录）。不提供便携版，避免从压缩包临时目录运行、自启路径失效和升级残留。
 - 安装目录：`%LOCALAPPDATA%\Programs\RelaxationReminder`；开始菜单快捷方式必装，桌面快捷方式可选（默认不勾选）。
 - 版本资源：exe 写入 `FileVersion 0.11.25.0`、`ProductVersion 0.11.25.0` 和应用图标（与默认形象一致的琥珀色圆角方块）；托盘与任务栏使用同一图标。
 - 升级：同 AppId 覆盖安装；安装前向已运行实例的隐藏窗口发送 `WM_CLOSE`，等待其退出后替换文件。用户配置与自定义形象不受影响。
 - 卸载：删除程序文件、快捷方式、卸载项与自启注册表值；默认保留 `%APPDATA%\RelaxationReminder` 下的配置和自定义形象，重装后继续生效。
 - 签名：不做代码签名（2026-11-06 决定）。首次运行安装包可能出现 SmartScreen“Windows 已保护你的电脑”，需用户点击“更多信息 → 仍要运行”；README 提供说明。未签名也可能触发少数杀软误报。
-- 静默/智能体安装：安装器支持 Inno Setup 标准参数 `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /LOG=<路径>`，退出码 0 或 3010 视为成功；`[Run]` 带 `skipifsilent`，静默安装不会自动启动，需在安装完成后单独启动 exe。README 提供可直接复制给 AI 智能体的提示词：只从官方 Release 下载、用 `Get-FileHash` 或 `certutil` 校验 SHA-256、以当前用户静默安装、启动并验证进程与配置文件；不得关闭 Defender/SmartScreen、添加排除项或请求管理员权限。卸载使用 `unins000.exe /VERYSILENT /SUPPRESSMSGBOXES`，仍保留 `%APPDATA%\RelaxationReminder`。
+- 部署逻辑：**默认安装方式为 AI 智能体自动安装**——用户复制 README 中的提示词，智能体通过 GitHub API 获取最新 Release、下载 `RelaxationReminder-Setup-*.exe`、校验 SHA-256、静默安装、显式启动并验证；手动安装包作为备用方式保留。
+- 智能体安装契约：发布资产名必须匹配 `RelaxationReminder-Setup-*.exe`，Release 说明必须包含安装包 SHA-256；安装器支持 Inno Setup 标准参数 `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /LOG=<路径>`，退出码 0 或 3010 视为成功；`[Run]` 带 `skipifsilent`，静默安装不会自动启动，需在安装完成后单独启动 exe。提示词要求只从官方 Release 下载、用 `Get-FileHash` 或 `certutil` 校验 SHA-256、以当前用户安装，并验证进程与配置文件；不得关闭 Defender/SmartScreen、添加排除项或请求管理员权限。卸载使用 `unins000.exe /VERYSILENT /SUPPRESSMSGBOXES`，仍保留 `%APPDATA%\RelaxationReminder`。
 - 编译：Release x64，`/MT /O2`，保留默认 `/GS` 栈保护，关闭 RTTI；异常仅用于启动期致命错误。
 - 清单：`asInvoker`、Per-Monitor V2 DPI、Common Controls v6、支持 Win11。
 - 自启：`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`，值名 `RelaxationReminder`，数据为带引号的 exe 绝对路径。安装器不创建该值，由程序按配置管理；程序每次启动且在自启开启时重写路径，确保移动或重装后仍指向当前 exe。
@@ -379,7 +380,7 @@ character_image_file=
 5. 大小限制放宽（2026-11-06）：核心 exe 维持 ≤1 MB，安装包单独统计，不计入 1 MB 判定，设计目标 ≤3 MB。
 6. 不做代码签名（2026-11-06 修订）：证书成本与时间不可接受；SmartScreen 提示由用户手动放行，README 提供说明。
 7. 首个公开发行版本号定为 **0.11.25.0**（2026-11-06），发布时使用。
-8. 分发方式（2026-11-06）：只提供每用户安装包（Inno Setup），安装到 `%LOCALAPPDATA%\Programs\RelaxationReminder`，不提供便携版。
+8. 分发方式（2026-11-06，2026-11-09 修订）：默认部署方式为 AI 智能体自动安装（README 提供可复制提示词），手动备用为每用户安装包（Inno Setup），安装到 `%LOCALAPPDATA%\Programs\RelaxationReminder`，不提供便携版。
 9. 卸载默认保留 `%APPDATA%\RelaxationReminder` 中的配置和自定义形象，重装后继续生效。
 10. 安装器不创建自启项，由程序按默认开启策略写入；程序启动时重写路径以自愈。
 11. 设置面板改为所见即所得（2026-11-06）：移除“保存/取消”，字段修改立即生效；显示名称为空或含控制字符时使用“牛马”。
