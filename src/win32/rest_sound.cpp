@@ -23,6 +23,9 @@ constexpr int kMusicResourceId = 2;
 constexpr size_t kBufferCount = 4;
 constexpr uint32_t kBufferMilliseconds = 40;
 constexpr uint32_t kFadeMilliseconds = 800;
+// Silence inserted after every repetition of the clip, so the music plays in
+// 2 s bursts separated by 3 s pauses while the rest-end phase is active.
+constexpr uint32_t kLoopGapMilliseconds = 3000;
 
 uint16_t ReadLe16(const unsigned char* bytes) {
     return static_cast<uint16_t>(bytes[0] | (bytes[1] << 8));
@@ -205,21 +208,36 @@ void FillBuffer(Buffer* buffer) {
     const uint64_t frames = g_samples_per_buffer;
     BYTE* destination = buffer->data.data();
     uint64_t position = g_clip_position;
+    // The clip repeats with a silent gap between repetitions: 2 s of music,
+    // 3 s of pause, 2 s of music, ...
+    const uint64_t gap_frames =
+        static_cast<uint64_t>(g_clip.format.nSamplesPerSec) *
+        kLoopGapMilliseconds / 1000;
 
     for (uint64_t frame = 0; frame < frames; ++frame) {
         const double volume = VolumeAt(g_next_sample + frame);
+        BYTE* out = destination + frame * g_clip.block_align;
+        if (position >= g_clip.frames) {
+            // Inside the pause: emit silence instead of wrapping straight
+            // back into the clip.
+            std::fill(out, out + g_clip.block_align,
+                      sixteen_bit ? static_cast<BYTE>(0) : static_cast<BYTE>(128));
+            ++position;
+            if (position >= g_clip.frames + gap_frames) {
+                position = 0;
+            }
+            continue;
+        }
         const BYTE* source = g_clip.pcm.data() + position * g_clip.block_align;
         if (sixteen_bit) {
-            auto* out = reinterpret_cast<int16_t*>(destination +
-                                                   frame * g_clip.block_align);
+            auto* out16 = reinterpret_cast<int16_t*>(out);
             const auto* in = reinterpret_cast<const int16_t*>(source);
             for (uint32_t channel = 0; channel < channels; ++channel) {
                 long scaled = std::lround(in[channel] * volume);
                 scaled = std::max<long>(-32768, std::min<long>(32767, scaled));
-                out[channel] = static_cast<int16_t>(scaled);
+                out16[channel] = static_cast<int16_t>(scaled);
             }
         } else {
-            BYTE* out = destination + frame * g_clip.block_align;
             for (uint32_t channel = 0; channel < channels; ++channel) {
                 const int centered = static_cast<int>(source[channel]) - 128;
                 long scaled = 128 + std::lround(centered * volume);
@@ -228,9 +246,6 @@ void FillBuffer(Buffer* buffer) {
             }
         }
         ++position;
-        if (position >= g_clip.frames) {
-            position = 0;
-        }
     }
 
     g_clip_position = position;
