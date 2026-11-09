@@ -259,6 +259,7 @@ character_image_file=
 - 升级：同 AppId 覆盖安装；安装前向已运行实例的隐藏窗口发送 `WM_CLOSE`，等待其退出后替换文件。用户配置与自定义形象不受影响。
 - 卸载：删除程序文件、快捷方式、卸载项与自启注册表值；默认保留 `%APPDATA%\RelaxationReminder` 下的配置和自定义形象，重装后继续生效。
 - 签名：不做代码签名（2026-11-06 决定）。首次运行安装包可能出现 SmartScreen“Windows 已保护你的电脑”，需用户点击“更多信息 → 仍要运行”；README 提供说明。未签名也可能触发少数杀软误报。
+- 静默/智能体安装：安装器支持 Inno Setup 标准参数 `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /LOG=<路径>`，退出码 0 或 3010 视为成功；`[Run]` 带 `skipifsilent`，静默安装不会自动启动，需在安装完成后单独启动 exe。README 提供可直接复制给 AI 智能体的提示词：只从官方 Release 下载、用 `Get-FileHash` 或 `certutil` 校验 SHA-256、以当前用户静默安装、启动并验证进程与配置文件；不得关闭 Defender/SmartScreen、添加排除项或请求管理员权限。卸载使用 `unins000.exe /VERYSILENT /SUPPRESSMSGBOXES`，仍保留 `%APPDATA%\RelaxationReminder`。
 - 编译：Release x64，`/MT /O2`，保留默认 `/GS` 栈保护，关闭 RTTI；异常仅用于启动期致命错误。
 - 清单：`asInvoker`、Per-Monitor V2 DPI、Common Controls v6、支持 Win11。
 - 自启：`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`，值名 `RelaxationReminder`，数据为带引号的 exe 绝对路径。安装器不创建该值，由程序按配置管理；程序每次启动且在自启开启时重写路径，确保移动或重装后仍指向当前 exe。
