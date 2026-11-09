@@ -168,6 +168,7 @@ void ReminderWindow::Destroy() {
     title_font_height_ = 0;
     body_font_height_ = 0;
 
+    ReleaseBuffer();
     character_.Clear();
 }
 
@@ -260,8 +261,9 @@ void ReminderWindow::Update(uint64_t now_ms, const StateMachine& machine) {
     side = ClampInt(side, 1, std::min(work_width, work_height));
 
     if (side != current_side_) {
+        // Resizing already invalidates the full client area; only the status
+        // line needs an explicit repaint when its text changes.
         ResizeTo(side);
-        InvalidateRect(hwnd_, nullptr, FALSE);
     }
 
     if (character_.Tick(now_ms)) {
@@ -271,7 +273,13 @@ void ReminderWindow::Update(uint64_t now_ms, const StateMachine& machine) {
     const std::wstring status = BuildStatus(machine);
     if (status != status_text_) {
         status_text_ = status;
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        RECT client = {};
+        GetClientRect(hwnd_, &client);
+        RECT line = StatusRect(client.right - client.left,
+                               client.bottom - client.top);
+        const int pad = std::max(2, static_cast<int>(dpi_ / 96));
+        InflateRect(&line, pad, pad);
+        InvalidateRect(hwnd_, &line, FALSE);
     }
 
     SetSnoozeEnabled(!machine.snooze_used());
@@ -333,6 +341,9 @@ void ReminderWindow::NotifyOwner(UINT message) {
 }
 
 std::wstring ReminderWindow::BuildStatus(const StateMachine& machine) const {
+    if (machine.timing_paused()) {
+        return L"计时已暂停";
+    }
     switch (machine.state()) {
         case State::ShowActive:
             return L"离开键鼠 " +
@@ -456,6 +467,85 @@ void ReminderWindow::Paint(HDC dc) {
         return;
     }
 
+    if (!EnsureBuffer(dc, width, height)) {
+        PaintContent(dc, width, height);
+        return;
+    }
+
+    // Draw into the off-screen buffer first, then blit once so a partial
+    // invalidation (the status line) never flashes the background.
+    PaintContent(buffer_dc_, width, height);
+    BitBlt(dc, 0, 0, width, height, buffer_dc_, 0, 0, SRCCOPY);
+}
+
+bool ReminderWindow::EnsureBuffer(HDC reference, int width, int height) {
+    // Round the backing store up so the exponential growth (a resize every
+    // tick) does not reallocate a bitmap on every frame.
+    const int capacity_width = (width + 63) & ~63;
+    const int capacity_height = (height + 63) & ~63;
+    if (buffer_dc_ != nullptr && buffer_width_ >= width &&
+        buffer_height_ >= height) {
+        return true;
+    }
+
+    ReleaseBuffer();
+    buffer_dc_ = CreateCompatibleDC(reference);
+    if (buffer_dc_ == nullptr) {
+        return false;
+    }
+    buffer_bitmap_ =
+        CreateCompatibleBitmap(reference, capacity_width, capacity_height);
+    if (buffer_bitmap_ == nullptr) {
+        DeleteDC(buffer_dc_);
+        buffer_dc_ = nullptr;
+        return false;
+    }
+    buffer_previous_bitmap_ =
+        static_cast<HBITMAP>(SelectObject(buffer_dc_, buffer_bitmap_));
+    buffer_width_ = capacity_width;
+    buffer_height_ = capacity_height;
+    return true;
+}
+
+void ReminderWindow::ReleaseBuffer() {
+    if (buffer_dc_ == nullptr) {
+        return;
+    }
+    if (buffer_previous_bitmap_ != nullptr) {
+        SelectObject(buffer_dc_, buffer_previous_bitmap_);
+    }
+    if (buffer_bitmap_ != nullptr) {
+        DeleteObject(buffer_bitmap_);
+    }
+    DeleteDC(buffer_dc_);
+    buffer_dc_ = nullptr;
+    buffer_bitmap_ = nullptr;
+    buffer_previous_bitmap_ = nullptr;
+    buffer_width_ = 0;
+    buffer_height_ = 0;
+}
+
+RECT ReminderWindow::StatusRect(int width, int height) const {
+    const float side = static_cast<float>(std::min(width, height));
+    const float image_side = side * 0.50f;
+    const float image_top = side * 0.07f;
+    const int image_bottom =
+        static_cast<int>(std::lround(image_top + image_side));
+    const int title_top =
+        image_bottom + static_cast<int>(std::lround(side * 0.03f));
+    const int title_height =
+        static_cast<int>(std::lround(title_font_height_ * 1.35));
+    const int status_top =
+        title_top + title_height +
+        static_cast<int>(std::lround(side * 0.005f));
+    const int status_height =
+        static_cast<int>(std::lround(body_font_height_ * 1.4));
+
+    RECT rect = {0, status_top, width, status_top + status_height};
+    return rect;
+}
+
+void ReminderWindow::PaintContent(HDC dc, int width, int height) {
     Gdiplus::Graphics graphics(dc);
     graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
     graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHighQuality);
@@ -489,11 +579,7 @@ void ReminderWindow::Paint(HDC dc) {
         image_bottom + static_cast<int>(std::lround(side * 0.03f));
     const int title_height =
         static_cast<int>(std::lround(title_font_height_ * 1.35));
-    const int status_top =
-        title_top + title_height +
-        static_cast<int>(std::lround(side * 0.005f));
-    const int status_height =
-        static_cast<int>(std::lround(body_font_height_ * 1.4));
+    const RECT status_rect = StatusRect(width, height);
 
     SetBkMode(dc, TRANSPARENT);
     if (title_font_ != nullptr) {
@@ -509,8 +595,8 @@ void ReminderWindow::Paint(HDC dc) {
     if (body_font_ != nullptr && !status_text_.empty()) {
         HGDIOBJ old_font = SelectObject(dc, body_font_);
         SetTextColor(dc, RGB(109, 76, 65));
-        RECT status_rect = {0, status_top, width, status_top + status_height};
-        DrawTextW(dc, status_text_.c_str(), -1, &status_rect,
+        RECT line = status_rect;
+        DrawTextW(dc, status_text_.c_str(), -1, &line,
                   DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
         SelectObject(dc, old_font);
     }

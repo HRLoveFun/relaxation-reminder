@@ -46,6 +46,10 @@ private:
 
     LRESULT HandleMessage(UINT message, WPARAM wparam, LPARAM lparam);
     void Paint(HDC dc);
+    void PaintContent(HDC dc, int width, int height);
+    bool EnsureBuffer(HDC reference, int width, int height);
+    void ReleaseBuffer();
+    RECT StatusRect(int width, int height) const;
     void Layout(int width, int height);
     void UpdateFonts(int width, int height);
     void ResizeTo(int side);
@@ -75,6 +79,14 @@ private:
     std::wstring status_text_;
     std::wstring user_name_;
     bool snooze_enabled_ = true;
+
+    // Off-screen buffer so a status-text update never repaints (and flickers)
+    // the whole window.
+    HDC buffer_dc_ = nullptr;
+    HBITMAP buffer_bitmap_ = nullptr;
+    HBITMAP buffer_previous_bitmap_ = nullptr;
+    int buffer_width_ = 0;
+    int buffer_height_ = 0;
 
     CharacterImage character_;
 };

@@ -152,6 +152,42 @@ void ExpansionContinuesWhileResting() {
     CHECK(machine.expansion_elapsed_ms() == 60 * kSecond);
 }
 
+void PauseFreezesAllCountdowns() {
+    rr::StateMachine machine = MakeMachine();
+    machine.Tick(10 * kMinute, 0);
+    CHECK(machine.interval_remaining_seconds() == 20 * 60);
+
+    machine.SetTimingPaused(true);
+    CHECK(machine.timing_paused());
+    rr::TickResult result = machine.Tick(30 * kMinute, 0);
+    CHECK(!result.show_reminder);
+    CHECK(machine.interval_remaining_seconds() == 20 * 60);
+
+    machine.SetTimingPaused(false);
+    CHECK(!machine.timing_paused());
+    result = machine.Tick(30 * kMinute + 20 * kMinute, 0);
+    CHECK(result.show_reminder);
+}
+
+void PauseFreezesRestAndExpansion() {
+    rr::StateMachine machine = MakeMachine();
+    machine.Tick(30 * kMinute, 0);
+    machine.Tick(30 * kMinute + 10 * kSecond, 10000);
+    CHECK(machine.state() == rr::State::RestRunning);
+    const uint32_t remaining = machine.rest_remaining_seconds();
+
+    machine.SetTimingPaused(true);
+    rr::TickResult result = machine.Tick(35 * kMinute, 10000);
+    CHECK(!result.final_dismiss);
+    CHECK(machine.rest_remaining_seconds() == remaining);
+    CHECK(machine.expansion_elapsed_ms() == 10 * kSecond);
+
+    machine.SetTimingPaused(false);
+    result = machine.Tick(35 * kMinute + 300 * kSecond, 10000);
+    CHECK(result.final_dismiss);
+    CHECK(machine.state() == rr::State::WaitInterval);
+}
+
 void SleepCountsForIntervalOnly() {
     rr::StateMachine interval_machine = MakeMachine();
     interval_machine.Tick(1 * kMinute, 0);
@@ -286,6 +322,8 @@ int main() {
     InputPausesRestAndKeepsRemaining();
     ExpansionContinuesWhileResting();
     SnoozeOnceAndResetsNextCycle();
+    PauseFreezesAllCountdowns();
+    PauseFreezesRestAndExpansion();
     SleepCountsForIntervalOnly();
     CloseReminderEndsCycle();
     ConfigChangesApplyNextCycle();
