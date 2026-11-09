@@ -40,6 +40,7 @@ constexpr UINT kMenuAutostart = 1003;
 constexpr UINT kMenuExit = 1004;
 constexpr UINT kMenuChooseImage = 1005;
 constexpr UINT kMenuResetImage = 1006;
+constexpr UINT kMenuPauseTiming = 1007;
 
 HWND g_hwnd = nullptr;
 NOTIFYICONDATAW g_tray{};
@@ -413,25 +414,29 @@ std::wstring FormatClock(uint32_t seconds) {
 void UpdateTrayTip() {
     std::wstring tip = kAppName;
 
-    switch (g_machine.state()) {
-        case rr::State::WaitInterval:
-            tip += L" - 下次 ";
-            tip += FormatClock(g_machine.interval_remaining_seconds());
-            break;
-        case rr::State::SnoozeWait:
-            tip += L" - 延后中 ";
-            tip += FormatClock(g_machine.interval_remaining_seconds());
-            break;
-        case rr::State::ShowActive:
-            tip += L" - 该休息了";
-            break;
-        case rr::State::RestRunning:
-            tip += L" - 休息中 ";
-            tip += FormatClock(g_machine.rest_remaining_seconds());
-            break;
-        case rr::State::RestPaused:
-            tip += L" - 休息暂停，离开键鼠继续";
-            break;
+    if (g_machine.timing_paused()) {
+        tip += L" - 计时已暂停";
+    } else {
+        switch (g_machine.state()) {
+            case rr::State::WaitInterval:
+                tip += L" - 下次 ";
+                tip += FormatClock(g_machine.interval_remaining_seconds());
+                break;
+            case rr::State::SnoozeWait:
+                tip += L" - 延后中 ";
+                tip += FormatClock(g_machine.interval_remaining_seconds());
+                break;
+            case rr::State::ShowActive:
+                tip += L" - 该休息了";
+                break;
+            case rr::State::RestRunning:
+                tip += L" - 休息中 ";
+                tip += FormatClock(g_machine.rest_remaining_seconds());
+                break;
+            case rr::State::RestPaused:
+                tip += L" - 休息暂停，离开键鼠继续";
+                break;
+        }
     }
 
     if (tip == g_last_tip) {
@@ -474,7 +479,13 @@ void HandleSnooze() {
     if (!g_machine.IsVisible() || g_machine.snooze_used()) {
         return;
     }
-    if (!ConfirmSnoozeReminder()) {
+    // The confirmation dialog pumps WM_TIMER; freeze the countdowns so no
+    // time passes while the user is still deciding.
+    const bool was_paused = g_machine.timing_paused();
+    g_machine.SetTimingPaused(true);
+    const bool confirmed = ConfirmSnoozeReminder();
+    g_machine.SetTimingPaused(was_paused);
+    if (!confirmed) {
         return;
     }
     if (!g_machine.TrySnooze(GetTickCount64())) {
@@ -507,7 +518,13 @@ void HandleCloseReminder() {
     if (!g_machine.IsVisible()) {
         return;
     }
-    if (!ConfirmCloseReminder()) {
+    // Same as snooze: the rest countdown and expansion must not advance while
+    // the confirmation dialog is open.
+    const bool was_paused = g_machine.timing_paused();
+    g_machine.SetTimingPaused(true);
+    const bool confirmed = ConfirmCloseReminder();
+    g_machine.SetTimingPaused(was_paused);
+    if (!confirmed) {
         return;
     }
     g_machine.CloseReminder(GetTickCount64());
@@ -552,6 +569,10 @@ void ShowTrayMenu() {
 
     AppendMenuW(menu, MF_STRING, kMenuSettings, L"设置(&S)");
     AppendMenuW(menu, MF_STRING, kMenuRestNow, L"立即休息(&N)");
+    AppendMenuW(menu,
+                MF_STRING | (g_machine.timing_paused() ? MF_CHECKED
+                                                       : MF_UNCHECKED),
+                kMenuPauseTiming, L"暂停计时(&P)");
     AppendMenuW(menu, MF_STRING, kMenuChooseImage, L"选择形象图片(&I)…");
     AppendMenuW(menu,
                 MF_STRING | (g_config.character_image_file.empty() ? MF_GRAYED
@@ -671,10 +692,21 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam,
                         if (g_splash) {
                             g_splash->Hide();
                         }
+                        // Showing a reminder implies the timers should run
+                        // again; otherwise the window would stay frozen.
+                        g_machine.SetTimingPaused(false);
                         g_machine.ForceShow(GetTickCount64());
                         ShowReminderWindow();
                     }
                     return 0;
+                case kMenuPauseTiming: {
+                    g_machine.SetTimingPaused(!g_machine.timing_paused());
+                    if (g_reminder && g_reminder->visible()) {
+                        g_reminder->Update(GetTickCount64(), g_machine);
+                    }
+                    UpdateTrayTip();
+                    return 0;
+                }
                 case kMenuChooseImage:
                     ChooseCharacterImage();
                     return 0;

@@ -28,6 +28,7 @@ struct TickResult {
 //  ShowActive/Rest* --(snooze, once)--> SnoozeWait --(snooze)--> ShowActive
 //
 // Configuration changes are queued and take effect on the next reminder cycle.
+// A global pause flag freezes every countdown and the window expansion.
 class StateMachine {
 public:
     void Configure(uint32_t interval_minutes, uint32_t rest_minutes,
@@ -43,6 +44,11 @@ public:
 
     // Test/debug hook: show immediately without waiting for the interval.
     void ForceShow(uint64_t now_ms);
+
+    // Freezes every countdown (interval, snooze, rest) and the window
+    // expansion until resumed. Manual close/snooze still work while paused.
+    void SetTimingPaused(bool paused);
+    bool timing_paused() const { return timing_paused_; }
 
     State state() const { return state_; }
     bool IsVisible() const;
@@ -62,6 +68,7 @@ private:
     State state_ = State::WaitInterval;
     bool started_ = false;
     bool suspended_ = false;
+    bool timing_paused_ = false;
     bool snooze_used_ = false;
 
     uint32_t interval_ms_ = 0;

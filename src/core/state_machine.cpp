@@ -46,6 +46,12 @@ TickResult StateMachine::Tick(uint64_t now_ms, uint32_t idle_ms) {
         last_tick_ms_ = now_ms;
         return result;
     }
+    if (timing_paused_) {
+        // Keep the clock anchored so resuming continues from the frozen
+        // remaining time instead of counting the paused wall time.
+        last_tick_ms_ = now_ms;
+        return result;
+    }
 
     const uint64_t delta = now_ms > last_tick_ms_ ? now_ms - last_tick_ms_ : 0;
     last_tick_ms_ = now_ms;
@@ -143,6 +149,13 @@ void StateMachine::OnResume(uint64_t now_ms) {
 void StateMachine::ForceShow(uint64_t now_ms) {
     Start(now_ms);
     EnterShow(now_ms, false);
+}
+
+void StateMachine::SetTimingPaused(bool paused) {
+    if (paused == timing_paused_) {
+        return;
+    }
+    timing_paused_ = paused;
 }
 
 bool StateMachine::IsVisible() const {
