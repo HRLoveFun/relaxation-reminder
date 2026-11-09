@@ -15,8 +15,9 @@ enum class State {
 
 // Fade length used when the user comes back during MusicPlaying or when the
 // playback window is about to end. The audio engine fades a little faster, so
-// the sound is already silent when the window disappears.
-inline constexpr uint32_t kMusicFadeMs = 900;
+// the sound is already silent when the window disappears. Input during music
+// fades the sound within one second and closes the window one second later.
+inline constexpr uint32_t kMusicFadeMs = 1000;
 
 struct TickResult {
     bool show_reminder = false;

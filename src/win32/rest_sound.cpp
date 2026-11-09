@@ -22,7 +22,7 @@ constexpr int kMusicResourceId = 2;
 // headroom against underruns.
 constexpr size_t kBufferCount = 4;
 constexpr uint32_t kBufferMilliseconds = 40;
-constexpr uint32_t kFadeMilliseconds = 600;
+constexpr uint32_t kFadeMilliseconds = 800;
 
 uint16_t ReadLe16(const unsigned char* bytes) {
     return static_cast<uint16_t>(bytes[0] | (bytes[1] << 8));

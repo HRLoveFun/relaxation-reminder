@@ -241,15 +241,15 @@ src/
 - 状态机新增 `MusicPlaying`：`RestRunning` 倒计时归零且 `music_enabled` 为真时进入该状态，产生 `TickResult::music_start`，窗口保持可见；`music_enabled` 为假时保持旧行为，直接 `final_dismiss`。
 - 时长：`music_play_seconds`（30–120，默认 60），在 `Configure()` 中排队，下一个提醒周期生效；`music_enabled` 通过 `SetMusicEnabled()` 立即生效。
 - 结束：播放满 `music_play_seconds` 产生 `final_dismiss`；播放期间检测到键鼠输入（`idle_ms < idle_threshold`）即提前进入淡出。
-- 淡出：状态机在剩余 ≤ `kMusicFadeMs`（900 ms）时产生一次 `music_fade_out`，剩余时间截断为 900 ms，随后 `final_dismiss`；音频引擎自身淡出 600 ms，早于窗口关闭完成。
+- 淡出：状态机在剩余 ≤ `kMusicFadeMs`（1000 ms）时产生一次 `music_fade_out`，剩余时间截断为 1000 ms，随后 `final_dismiss`；音频引擎自身淡出 800 ms，早于窗口关闭完成。
 - 标题：`MusicPlaying` 期间提醒标题为“生产队的驴都不敢这么歇！”，状态栏显示“音乐播放中 MM:SS / MM:SS”；其余状态为“{user_name}，休息一下”。
 - 暂停：全局暂停计时冻结音乐倒计时并停止音频，恢复后若仍在 `MusicPlaying` 且未淡出则从当前位置继续播放；二次确认框打开期间同样暂停。
 - 延后：`CanSnooze()` 在 `MusicPlaying` 期间返回 false，“延后”按钮置灰。
 - 播放：`waveOut` 流式播放（winmm，`/DELAYLOAD:winmm.dll`）。内存 WAV 解析后 4 个 40 ms `WAVEHDR` 循环排队，`WAVE_MAPPER`、`CALLBACK_NULL`，由 50 ms UI tick 中的 `ServiceRestMusic()` 回收并重新填充，避免回调线程。短音乐循环播放以覆盖 30–120 秒。
-- 淡出实现：软件音量包络（8-bit 无符号 / 16-bit 有符号缩放），对尚未排队的音频生效；`FadeOutRestMusic()` 记录当前样本位置，600 ms 线性降到 0。安全超时（淡出 + 2 s）后 `waveOutReset` / `waveOutUnprepareHeader` / `waveOutClose` 释放设备。
+- 淡出实现：软件音量包络（8-bit 无符号 / 16-bit 有符号缩放），对尚未排队的音频生效；`FadeOutRestMusic()` 记录当前样本位置，800 ms 线性降到 0。安全超时（淡出 + 2 s）后 `waveOutReset` / `waveOutUnprepareHeader` / `waveOutClose` 释放设备。
 - 停止：`StopRestMusic()` 在手动关闭、延后、暂停计时、`PBT_APMSUSPEND`、程序退出、窗口最终消失时调用。
 - 格式白名单：PCM WAV（`format=1`）、8/16 位、1~2 声道、8~48 kHz、`data` 块非空，单文件 ≤5 MB；只接受裸文件名，文件存放于 `%APPDATA%\RelaxationReminder\sound\`。压缩 WAV/MP3/AAC 不支持，避免 N 版编解码器缺失。
-- 内置音乐：`src/resources/rest_music.wav`，24 kHz 单声道 16-bit PCM、5.07 秒、约 238 KB，以资源类型 `WAVE`、ID 2 编译进 exe；只含 RIFF/fmt/data 块。
+- 内置音乐：`src/resources/rest_music.wav`，由 `tools/make_music.py` 纯数学生成（1049 Hz 铃声叠加 2449/4131 Hz 泛音，随后四个低音音符），24 kHz 单声道 16-bit PCM、5.07 秒、约 238 KB，以资源类型 `WAVE`、ID 2 编译进 exe；只含 RIFF/fmt/data 块，无元数据、无第三方版权。
 - 音量：不提供单条音量控制，由系统音量决定。
 - 设置入口：设置面板增加“音乐时长”拖动条（30–120，步长 10）与“休息结束时播放音乐”复选框；托盘菜单增加勾选项、“选择音乐”“恢复默认音乐”。“恢复默认值”将音乐时长恢复 60 秒，不改动音乐开关与用户文件。
 
@@ -376,7 +376,7 @@ music_file=
 | T16 | 自定义静态图 | 选择后按比例显示，重启后保持；恢复默认后回到内置方块 |
 | T17 | 自定义动图/异常文件 | GIF 循环播放；损坏、超限或格式不支持时回退内置方块并提示 |
 | T18 | 休息结束进入音乐 | 倒计时归零后窗口保持打开、开始播放音乐、标题变为“生产队的驴都不敢这么歇！”；播满 `music_play_seconds` 后关闭并重新计时 |
-| T19 | 音乐淡出与停止 | 播放期间动键鼠音乐 0.6 s 内淡出、窗口约 0.9 s 内关闭；手动关闭、暂停计时、休眠、退出时立即停止；音乐期间“延后”置灰 |
+| T19 | 音乐淡出与停止 | 播放期间动键鼠音乐 1 s 内淡出、窗口 1 s 后关闭；手动关闭、暂停计时、休眠、退出时立即停止；音乐期间“延后”置灰 |
 | T20 | 选择/恢复用户音乐 | 5 MB 内 PCM WAV 复制到 `sound` 目录并重启保持；恢复默认后删除文件并回退内置音乐 |
 | T21 | 非法/超大/压缩音频 | 拒绝并提示；用户文件被删除或损坏时回退内置音乐 |
 | T22 | 音乐内存 | 待机不加载 winmm；播放峰值符合预算，关闭窗口后回落 |
@@ -421,7 +421,7 @@ music_file=
 11. 设置面板改为所见即所得（2026-11-06）：移除“保存/取消”，字段修改立即生效；显示名称为空或含控制字符时使用“牛马”。
 12. 开机自启只保留在托盘菜单（2026-11-06）：设置面板移除该行，“恢复默认值”不改动自启状态。
 13. 设置面板档位化（2026-11-06）：三个时间参数改为拖动条（提醒间隔 20–60 步长 10，休息/延后 5/10/15），移除右侧说明与红色校验提示；空闲阈值仅保留配置文件入口，重置不改动该值；全界面统一使用 Microsoft YaHei UI。
-14. 休息结束音乐（2026-11-09，同日修订）：取消 `music_lead_seconds`；休息倒计时归零后开始播放，时长由 `music_play_seconds`（30–120，默认 60）控制，面板拖动条可改；播放期间窗口保持打开、标题改为“生产队的驴都不敢这么歇！”；动键鼠即淡出并关闭；音乐关闭时倒计时结束即关闭窗口。内置音乐为用户提供的 5 秒片段（24 kHz 单声道 PCM，内嵌 exe），循环播放；用户可选 PCM WAV（≤5 MB）。播放由 `PlaySound` 改为 `waveOut` 流式播放以支持淡出，仍延迟加载 winmm；不提供单条音量。
+14. 休息结束音乐（2026-11-09，同日修订）：取消 `music_lead_seconds`；休息倒计时归零后开始播放，时长由 `music_play_seconds`（30–120，默认 60）控制，面板拖动条可改；播放期间窗口保持打开、标题改为“生产队的驴都不敢这么歇！”；动键鼠即淡出并关闭；音乐关闭时倒计时结束即关闭窗口。内置音乐为程序合成的 5 秒片段（24 kHz 单声道 PCM，内嵌 exe，复刻参考提示音的 1049 Hz 铃声与四个低音），循环播放；用户可选 PCM WAV（≤5 MB）。播放由 `PlaySound` 改为 `waveOut` 流式播放以支持淡出，仍延迟加载 winmm；不提供单条音量。
 
 ## 16. 待确认事项
 
