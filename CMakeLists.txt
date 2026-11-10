@@ -14,6 +14,7 @@ add_executable(RelaxationReminder WIN32
     src/win32/reminder_window.cpp
     src/win32/character_image.cpp
     src/win32/rest_sound.cpp
+    src/win32/rounded_ui.cpp
     src/win32/settings_window.cpp
     src/win32/splash_window.cpp
     src/core/config.cpp
@@ -57,6 +58,7 @@ target_link_libraries(RelaxationReminder PRIVATE
     shell32
     advapi32
     shcore
+    dwmapi
     winmm
     delayimp
 )

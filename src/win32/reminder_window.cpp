@@ -1,5 +1,6 @@
 #include "reminder_window.h"
 
+#include "win32/rounded_ui.h"
 #include "win32/ui_theme.h"
 
 #include <commctrl.h>
@@ -19,31 +20,11 @@ constexpr UINT kSnoozeButtonId = 2001;
 constexpr UINT kCloseButtonId = 2002;
 constexpr UINT kSettingsButtonId = 2003;
 
-// Monochrome icon font used for the three action buttons. Segoe Fluent Icons
-// ships with Windows 11; Segoe MDL2 Assets is the Windows 10 fallback and uses
-// the same code points for these glyphs.
-constexpr wchar_t kIconFontFamily[] = L"Segoe Fluent Icons";
-constexpr wchar_t kIconFontFallback[] = L"Segoe MDL2 Assets";
+// Monochrome glyphs for the three action buttons, using the icon font chosen
+// by IconFontFamily().
 constexpr wchar_t kSettingsGlyph[] = L"\xE713";  // Gear
 constexpr wchar_t kSnoozeGlyph[] = L"\xE823";    // Clock with back arrow
 constexpr wchar_t kCloseGlyph[] = L"\xE711";     // Cross
-
-bool FontAvailable(const wchar_t* family) {
-    HDC dc = GetDC(nullptr);
-    LOGFONTW query = {};
-    query.lfCharSet = DEFAULT_CHARSET;
-    wcscpy_s(query.lfFaceName, family);
-    bool found = false;
-    EnumFontFamiliesExW(
-        dc, &query,
-        [](const LOGFONTW*, const TEXTMETRICW*, DWORD, LPARAM param) -> int {
-            *reinterpret_cast<bool*>(param) = true;
-            return 0;
-        },
-        reinterpret_cast<LPARAM>(&found), 0);
-    ReleaseDC(nullptr, dc);
-    return found;
-}
 
 int ClampInt(int value, int low, int high) {
     return std::max(low, std::min(value, high));
@@ -132,8 +113,7 @@ bool ReminderWindow::Create(HINSTANCE instance, HWND owner) {
     common_controls.dwICC = ICC_WIN95_CLASSES;
     InitCommonControlsEx(&common_controls);
 
-    icon_font_family_ =
-        FontAvailable(kIconFontFamily) ? kIconFontFamily : kIconFontFallback;
+    icon_font_family_ = IconFontFamily();
 
     WNDCLASSEXW window_class = {};
     window_class.cbSize = sizeof(window_class);
@@ -157,19 +137,20 @@ bool ReminderWindow::Create(HINSTANCE instance, HWND owner) {
         return false;
     }
 
+    // Owner-drawn so the buttons follow the rounded card corners.
     snooze_button_ = CreateWindowExW(
         0, L"BUTTON", kSnoozeGlyph,
-        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP, 0, 0, 0, 0, hwnd_,
+        WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP, 0, 0, 0, 0, hwnd_,
         reinterpret_cast<HMENU>(static_cast<UINT_PTR>(kSnoozeButtonId)),
         instance, nullptr);
     close_button_ = CreateWindowExW(
         0, L"BUTTON", kCloseGlyph,
-        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP, 0, 0, 0, 0, hwnd_,
+        WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP, 0, 0, 0, 0, hwnd_,
         reinterpret_cast<HMENU>(static_cast<UINT_PTR>(kCloseButtonId)), instance,
         nullptr);
     settings_button_ = CreateWindowExW(
         0, L"BUTTON", kSettingsGlyph,
-        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP, 0, 0, 0, 0, hwnd_,
+        WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP, 0, 0, 0, 0, hwnd_,
         reinterpret_cast<HMENU>(static_cast<UINT_PTR>(kSettingsButtonId)),
         instance, nullptr);
 
@@ -179,6 +160,10 @@ bool ReminderWindow::Create(HINSTANCE instance, HWND owner) {
         hwnd_ = nullptr;
         return false;
     }
+
+    EnableButtonHover(snooze_button_);
+    EnableButtonHover(close_button_);
+    EnableButtonHover(settings_button_);
 
     // Icon-only buttons keep their meaning discoverable through tooltips.
     tooltip_ = CreateWindowExW(
@@ -276,6 +261,7 @@ void ReminderWindow::ShowAtCursor(uint64_t now_ms, bool snooze_used) {
         }
     }
     dpi_ = dpi_x == 0 ? 96 : dpi_x;
+    ApplyRoundedWindowCorners(hwnd_, dpi_);
 
     const int work_width = work_area_.right - work_area_.left;
     const int work_height = work_area_.bottom - work_area_.top;
@@ -684,12 +670,20 @@ void ReminderWindow::PaintContent(HDC dc, int width, int height) {
     Gdiplus::SolidBrush background(Gdiplus::Color(255, 255, 249, 235));
     graphics.FillRectangle(&background, 0, 0, width, height);
 
+    // The card outline follows the compositor's rounded corner: same radius,
+    // inset by half the stroke so the border is not clipped at the corners.
     const float border_width =
         std::max(1.0f, static_cast<float>(dpi_) / 96.0f);
+    const float corner_radius = std::max(
+        0.0f, 8.0f * static_cast<float>(dpi_) / 96.0f - border_width / 2.0f);
+    const Gdiplus::RectF border_rect(
+        border_width / 2.0f, border_width / 2.0f,
+        static_cast<float>(width) - border_width,
+        static_cast<float>(height) - border_width);
+    Gdiplus::GraphicsPath border_path;
+    AddRoundedRect(&border_path, border_rect, corner_radius);
     Gdiplus::Pen border(Gdiplus::Color(255, 214, 190, 160), border_width);
-    graphics.DrawRectangle(&border, border_width / 2.0f, border_width / 2.0f,
-                           static_cast<float>(width) - border_width,
-                           static_cast<float>(height) - border_width);
+    graphics.DrawPath(&border, &border_path);
 
     const float side = static_cast<float>(std::min(width, height));
     const float image_side = side * 0.50f;
@@ -766,11 +760,22 @@ LRESULT ReminderWindow::HandleMessage(UINT message, WPARAM wparam,
                                       LPARAM lparam) {
     switch (message) {
         case WM_SIZE:
+            ApplyRoundedWindowCorners(hwnd_, dpi_);
             Layout(LOWORD(lparam), HIWORD(lparam));
             return 0;
 
         case WM_ERASEBKGND:
             return 1;
+
+        case WM_DRAWITEM: {
+            const auto* item = reinterpret_cast<const DRAWITEMSTRUCT*>(lparam);
+            if (item != nullptr && item->CtlType == ODT_BUTTON) {
+                DrawRoundedButton(*item, icon_font_, ReminderButtonColors(),
+                                  dpi_, false);
+                return TRUE;
+            }
+            break;
+        }
 
         case WM_PAINT: {
             PAINTSTRUCT paint = {};
