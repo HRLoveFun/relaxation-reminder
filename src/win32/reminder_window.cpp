@@ -2,11 +2,13 @@
 
 #include "win32/ui_theme.h"
 
+#include <commctrl.h>
 #include <shellscalingapi.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cwchar>
 #include <string>
 
 namespace rr {
@@ -16,6 +18,32 @@ constexpr wchar_t kWindowClass[] = L"RelaxationReminderWindow";
 constexpr UINT kSnoozeButtonId = 2001;
 constexpr UINT kCloseButtonId = 2002;
 constexpr UINT kSettingsButtonId = 2003;
+
+// Monochrome icon font used for the three action buttons. Segoe Fluent Icons
+// ships with Windows 11; Segoe MDL2 Assets is the Windows 10 fallback and uses
+// the same code points for these glyphs.
+constexpr wchar_t kIconFontFamily[] = L"Segoe Fluent Icons";
+constexpr wchar_t kIconFontFallback[] = L"Segoe MDL2 Assets";
+constexpr wchar_t kSettingsGlyph[] = L"\xE713";  // Gear
+constexpr wchar_t kSnoozeGlyph[] = L"\xE823";    // Clock with back arrow
+constexpr wchar_t kCloseGlyph[] = L"\xE711";     // Cross
+
+bool FontAvailable(const wchar_t* family) {
+    HDC dc = GetDC(nullptr);
+    LOGFONTW query = {};
+    query.lfCharSet = DEFAULT_CHARSET;
+    wcscpy_s(query.lfFaceName, family);
+    bool found = false;
+    EnumFontFamiliesExW(
+        dc, &query,
+        [](const LOGFONTW*, const TEXTMETRICW*, DWORD, LPARAM param) -> int {
+            *reinterpret_cast<bool*>(param) = true;
+            return 0;
+        },
+        reinterpret_cast<LPARAM>(&found), 0);
+    ReleaseDC(nullptr, dc);
+    return found;
+}
 
 int ClampInt(int value, int low, int high) {
     return std::max(low, std::min(value, high));
@@ -99,6 +127,14 @@ bool ReminderWindow::Create(HINSTANCE instance, HWND owner) {
     instance_ = instance;
     owner_ = owner;
 
+    INITCOMMONCONTROLSEX common_controls = {};
+    common_controls.dwSize = sizeof(common_controls);
+    common_controls.dwICC = ICC_WIN95_CLASSES;
+    InitCommonControlsEx(&common_controls);
+
+    icon_font_family_ =
+        FontAvailable(kIconFontFamily) ? kIconFontFamily : kIconFontFallback;
+
     WNDCLASSEXW window_class = {};
     window_class.cbSize = sizeof(window_class);
     // Redraw the whole client area on every resize so the previous frame's
@@ -122,18 +158,18 @@ bool ReminderWindow::Create(HINSTANCE instance, HWND owner) {
     }
 
     snooze_button_ = CreateWindowExW(
-        0, L"BUTTON", L"延后", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
-        0, 0, 0, 0, hwnd_,
+        0, L"BUTTON", kSnoozeGlyph,
+        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP, 0, 0, 0, 0, hwnd_,
         reinterpret_cast<HMENU>(static_cast<UINT_PTR>(kSnoozeButtonId)),
         instance, nullptr);
     close_button_ = CreateWindowExW(
-        0, L"BUTTON", L"关闭", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
-        0, 0, 0, 0, hwnd_,
+        0, L"BUTTON", kCloseGlyph,
+        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP, 0, 0, 0, 0, hwnd_,
         reinterpret_cast<HMENU>(static_cast<UINT_PTR>(kCloseButtonId)), instance,
         nullptr);
     settings_button_ = CreateWindowExW(
-        0, L"BUTTON", L"设置", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
-        0, 0, 0, 0, hwnd_,
+        0, L"BUTTON", kSettingsGlyph,
+        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP, 0, 0, 0, 0, hwnd_,
         reinterpret_cast<HMENU>(static_cast<UINT_PTR>(kSettingsButtonId)),
         instance, nullptr);
 
@@ -142,6 +178,33 @@ bool ReminderWindow::Create(HINSTANCE instance, HWND owner) {
         DestroyWindow(hwnd_);
         hwnd_ = nullptr;
         return false;
+    }
+
+    // Icon-only buttons keep their meaning discoverable through tooltips.
+    tooltip_ = CreateWindowExW(
+        WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr,
+        WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX, CW_USEDEFAULT, CW_USEDEFAULT,
+        CW_USEDEFAULT, CW_USEDEFAULT, hwnd_, nullptr, instance, nullptr);
+    if (tooltip_ != nullptr) {
+        struct TooltipEntry {
+            HWND button;
+            const wchar_t* text;
+        };
+        const TooltipEntry entries[] = {
+            {settings_button_, L"设置"},
+            {snooze_button_, L"延后"},
+            {close_button_, L"关闭"},
+        };
+        for (const TooltipEntry& entry : entries) {
+            TOOLINFOW tool = {};
+            tool.cbSize = sizeof(tool);
+            tool.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+            tool.hwnd = hwnd_;
+            tool.uId = reinterpret_cast<UINT_PTR>(entry.button);
+            tool.lpszText = const_cast<LPWSTR>(entry.text);
+            SendMessageW(tooltip_, TTM_ADDTOOLW, 0,
+                         reinterpret_cast<LPARAM>(&tool));
+        }
     }
 
     // Temporary layout size for the hidden window; ShowAtCursor resizes it to
@@ -159,6 +222,7 @@ void ReminderWindow::Destroy() {
     snooze_button_ = nullptr;
     close_button_ = nullptr;
     settings_button_ = nullptr;
+    tooltip_ = nullptr;
     visible_ = false;
     current_side_ = 0;
 
@@ -170,8 +234,13 @@ void ReminderWindow::Destroy() {
         DeleteObject(body_font_);
         body_font_ = nullptr;
     }
+    if (icon_font_ != nullptr) {
+        DeleteObject(icon_font_);
+        icon_font_ = nullptr;
+    }
     title_font_height_ = 0;
     body_font_height_ = 0;
+    icon_font_height_ = 0;
 
     ReleaseBuffer();
     character_.Clear();
@@ -411,9 +480,16 @@ void ReminderWindow::UpdateFonts(int width, int height) {
         static_cast<int>(std::lround(side * 0.045)),
         static_cast<int>(std::lround(12.0 * scale)),
         static_cast<int>(std::lround(22.0 * scale)));
+    // Icon glyphs need a little more room than body text to stay legible in
+    // the action buttons.
+    const int icon_height = ClampInt(
+        static_cast<int>(std::lround(side * 0.062)),
+        static_cast<int>(std::lround(14.0 * scale)),
+        static_cast<int>(std::lround(30.0 * scale)));
 
     if (title_height == title_font_height_ &&
-        body_height == body_font_height_) {
+        body_height == body_font_height_ &&
+        icon_height == icon_font_height_) {
         return;
     }
 
@@ -425,29 +501,38 @@ void ReminderWindow::UpdateFonts(int width, int height) {
         -body_height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
         OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
         DEFAULT_PITCH | FF_DONTCARE, kUiFontFamily);
+    HFONT new_icon = CreateFontW(
+        -icon_height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+        DEFAULT_PITCH | FF_DONTCARE, icon_font_family_.c_str());
 
     HFONT old_title = title_font_;
     HFONT old_body = body_font_;
+    HFONT old_icon = icon_font_;
     if (new_title != nullptr) {
         title_font_ = new_title;
     }
     if (new_body != nullptr) {
         body_font_ = new_body;
     }
+    if (new_icon != nullptr) {
+        icon_font_ = new_icon;
+    }
     title_font_height_ = title_height;
     body_font_height_ = body_height;
+    icon_font_height_ = icon_height;
 
     if (snooze_button_ != nullptr) {
         SendMessageW(snooze_button_, WM_SETFONT,
-                     reinterpret_cast<WPARAM>(body_font_), TRUE);
+                     reinterpret_cast<WPARAM>(icon_font_), TRUE);
     }
     if (close_button_ != nullptr) {
         SendMessageW(close_button_, WM_SETFONT,
-                     reinterpret_cast<WPARAM>(body_font_), TRUE);
+                     reinterpret_cast<WPARAM>(icon_font_), TRUE);
     }
     if (settings_button_ != nullptr) {
         SendMessageW(settings_button_, WM_SETFONT,
-                     reinterpret_cast<WPARAM>(body_font_), TRUE);
+                     reinterpret_cast<WPARAM>(icon_font_), TRUE);
     }
 
     if (old_title != nullptr && old_title != title_font_) {
@@ -455,6 +540,9 @@ void ReminderWindow::UpdateFonts(int width, int height) {
     }
     if (old_body != nullptr && old_body != body_font_) {
         DeleteObject(old_body);
+    }
+    if (old_icon != nullptr && old_icon != icon_font_) {
+        DeleteObject(old_icon);
     }
 }
 
@@ -466,14 +554,6 @@ void ReminderWindow::Layout(int width, int height) {
 
     const int side = std::min(width, height);
     const double scale = static_cast<double>(dpi_) / 96.0;
-    const int action_width = ClampInt(
-        static_cast<int>(std::lround(side * 0.30)),
-        static_cast<int>(std::lround(88.0 * scale)),
-        static_cast<int>(std::lround(150.0 * scale)));
-    const int settings_width = ClampInt(
-        static_cast<int>(std::lround(side * 0.19)),
-        static_cast<int>(std::lround(54.0 * scale)),
-        static_cast<int>(std::lround(90.0 * scale)));
     const int button_height = ClampInt(
         static_cast<int>(std::lround(side * 0.105)),
         static_cast<int>(std::lround(30.0 * scale)),
@@ -481,19 +561,31 @@ void ReminderWindow::Layout(int width, int height) {
     const int gap = static_cast<int>(std::lround(8.0 * scale));
     const int margin = static_cast<int>(std::lround(10.0 * scale));
 
+    // Three equal-width icon buttons, centered as a single row.
+    int button_width = ClampInt(
+        static_cast<int>(std::lround(side * 0.26)),
+        static_cast<int>(std::lround(72.0 * scale)),
+        static_cast<int>(std::lround(140.0 * scale)));
+    const int max_width = (width - margin * 2 - gap * 2) / 3;
+    if (max_width > 0) {
+        button_width = std::min(button_width, max_width);
+    }
+    const int total_width = button_width * 3 + gap * 2;
+    const int left = std::max(margin, (width - total_width) / 2);
+
     const int top =
         height - static_cast<int>(std::lround(side * 0.06)) - button_height;
     if (settings_button_ != nullptr) {
-        MoveWindow(settings_button_, margin, top, settings_width, button_height,
+        MoveWindow(settings_button_, left, top, button_width, button_height,
                    TRUE);
     }
-    if (close_button_ != nullptr) {
-        MoveWindow(close_button_, width - margin - action_width, top,
-                   action_width, button_height, TRUE);
-    }
     if (snooze_button_ != nullptr) {
-        MoveWindow(snooze_button_, width - margin - action_width * 2 - gap, top,
-                   action_width, button_height, TRUE);
+        MoveWindow(snooze_button_, left + button_width + gap, top, button_width,
+                   button_height, TRUE);
+    }
+    if (close_button_ != nullptr) {
+        MoveWindow(close_button_, left + (button_width + gap) * 2, top,
+                   button_width, button_height, TRUE);
     }
 }
 
