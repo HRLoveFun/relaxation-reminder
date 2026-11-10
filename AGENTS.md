@@ -81,10 +81,10 @@
 
 ## 8. 发布信息
 
-- 首个公开版本：**0.11.25.0**（2026-11-06）。
+- 首个公开版本：**0.11.25.0**（2026-11-06）；当前版本：**0.11.25.1**。
 - 仓库：<https://github.com/HRLoveFun/relaxation-reminder>。
 - 许可证：MIT。
-- 发布物：`RelaxationReminder-Setup-0.11.25.0.exe`（Win11 x64 每用户安装包）。
+- 发布物：`RelaxationReminder-Setup-0.11.25.1.exe`（Win11 x64 每用户安装包）。
 - 默认安装方式：AI 智能体自动安装（提示词见 README）；手动安装包为备用方式。
 - 当前实现范围：Windows 11 桌面端；macOS 与 iOS 为后续规划。
 
@@ -171,7 +171,7 @@
 5. 忽略文件：`git status --ignored --short`；确认 `build/`、`dist/` 不进入发布包。
 6. 二进制扫描（PowerShell，ASCII + UTF-16）：
    ```powershell
-   $b=[IO.File]::ReadAllBytes('dist\RelaxationReminder-Setup-0.11.25.0.exe')
+   $b=[IO.File]::ReadAllBytes('dist\RelaxationReminder-Setup-0.11.25.1.exe')
    [Text.Encoding]::ASCII.GetString($b) + [Text.Encoding]::Unicode.GetString($b) |
      Select-String 'C:\\Users\\|@gmail\.com|真实昵称'
    ```

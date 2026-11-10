@@ -28,7 +28,7 @@ https://raw.githubusercontent.com/HRLoveFun/relaxation-reminder/main/INSTALL.md
 
 ### 手动安装（备用）
 
-1. 从 [Releases](https://github.com/HRLoveFun/relaxation-reminder/releases/latest) 下载 `RelaxationReminder-Setup-0.11.25.0.exe`。
+1. 从 [Releases](https://github.com/HRLoveFun/relaxation-reminder/releases/latest) 下载 `RelaxationReminder-Setup-0.11.25.1.exe`。
 2. 双击安装。当前用户安装，无需管理员权限，默认目录 `%LOCALAPPDATA%\Programs\RelaxationReminder`；SmartScreen 提示时选“更多信息”→“仍要运行”。
 3. 安装后自动启动并常驻托盘。想立刻看效果：右键托盘图标 → **立即休息**。
 
@@ -37,7 +37,7 @@ https://raw.githubusercontent.com/HRLoveFun/relaxation-reminder/main/INSTALL.md
 #### 命令行静默安装
 
 ```powershell
-Start-Process -FilePath '.\RelaxationReminder-Setup-0.11.25.0.exe' `
+Start-Process -FilePath '.\RelaxationReminder-Setup-0.11.25.1.exe' `
   -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait
 Start-Process "$env:LOCALAPPDATA\Programs\RelaxationReminder\RelaxationReminder.exe"
 ```
@@ -171,7 +171,7 @@ build.bat test
 build.bat installer
 ```
 
-产物：`build\RelaxationReminder.exe`（单文件、静态 CRT）与 `dist\RelaxationReminder-Setup-0.11.25.0.exe`。也可用 CMake：
+产物：`build\RelaxationReminder.exe`（单文件、静态 CRT）与 `dist\RelaxationReminder-Setup-0.11.25.1.exe`。也可用 CMake：
 
 ```bat
 cmake -S . -B build-cmake -G "Visual Studio 16 2019" -A x64

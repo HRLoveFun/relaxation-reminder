@@ -286,7 +286,7 @@ music_file=
 
 - 发布形态：默认由 AI 智能体按 README 提示词自动安装；手动备用为单一安装包 `RelaxationReminder-Setup-<version>.exe`（Inno Setup 6 编译，每用户安装，无需管理员权限），内含单个核心程序 `RelaxationReminder.exe`（无 DLL、无外部资源目录）。不提供便携版，避免从压缩包临时目录运行、自启路径失效和升级残留。
 - 安装目录：`%LOCALAPPDATA%\Programs\RelaxationReminder`；开始菜单快捷方式必装，桌面快捷方式可选（默认不勾选）。
-- 版本资源：exe 写入 `FileVersion 0.11.25.0`、`ProductVersion 0.11.25.0` 和应用图标（与默认形象一致的琥珀色圆角方块）；托盘与任务栏使用同一图标。
+- 版本资源：exe 写入 `FileVersion 0.11.25.1`、`ProductVersion 0.11.25.1` 和应用图标（与默认形象一致的琥珀色圆角方块）；托盘与任务栏使用同一图标。
 - 升级：同 AppId 覆盖安装；安装前向已运行实例的隐藏窗口发送 `WM_CLOSE`，等待其退出后替换文件。用户配置与自定义形象不受影响。
 - 卸载：删除程序文件、快捷方式、卸载项与自启注册表值；默认保留 `%APPDATA%\RelaxationReminder` 下的配置和自定义形象，重装后继续生效。
 - 签名：不做代码签名（2026-11-06 决定）。首次运行安装包可能出现 SmartScreen“Windows 已保护你的电脑”，需用户点击“更多信息 → 仍要运行”；README 提供说明。未签名也可能触发少数杀软误报。
