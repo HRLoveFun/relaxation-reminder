@@ -28,7 +28,7 @@ https://raw.githubusercontent.com/HRLoveFun/relaxation-reminder/main/INSTALL.md
 
 ### 手动安装（备用）
 
-1. 从 [Releases](https://github.com/HRLoveFun/relaxation-reminder/releases/latest) 下载 `RelaxationReminder-Setup-0.11.25.0.exe`。
+1. 从 [Releases](https://github.com/HRLoveFun/relaxation-reminder/releases/latest) 下载 `RelaxationReminder-Setup-0.11.25.2.exe`。
 2. 双击安装。当前用户安装，无需管理员权限，默认目录 `%LOCALAPPDATA%\Programs\RelaxationReminder`；SmartScreen 提示时选“更多信息”→“仍要运行”。
 3. 安装后自动启动并常驻托盘。想立刻看效果：右键托盘图标 → **立即休息**。
 
@@ -37,7 +37,7 @@ https://raw.githubusercontent.com/HRLoveFun/relaxation-reminder/main/INSTALL.md
 #### 命令行静默安装
 
 ```powershell
-Start-Process -FilePath '.\RelaxationReminder-Setup-0.11.25.0.exe' `
+Start-Process -FilePath '.\RelaxationReminder-Setup-0.11.25.2.exe' `
   -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait
 Start-Process "$env:LOCALAPPDATA\Programs\RelaxationReminder\RelaxationReminder.exe"
 ```
@@ -155,7 +155,7 @@ Windows 10 1809 及以上，64 位。无需管理员权限，无需 .NET / Visua
 | `user_name` | 芬宝 | 显示名称，1–20 个字符；为空或含控制字符时用“牛马” |
 | `character_image_file` | 空 | 自定义形象文件名；仅文件名，不含路径 |
 | `music_enabled` | 1 | 是否播放休息结束音乐，0/1 |
-| `music_play_seconds` | 60 | 音乐播放时长，30–120；面板限制 30–120 步长 10 |
+| `music_play_seconds` | 60 | 音乐播放时长，0/30/60/90/120；0 表示关闭 |
 | `music_file` | 空 | 自定义音乐文件名；仅文件名，不含路径，须为 `.wav` |
 
 非法数值回退默认值；面板档位外的历史值会在打开面板时就近归档并保存。
@@ -170,7 +170,7 @@ build.bat test
 build.bat installer
 ```
 
-产物：`build\RelaxationReminder.exe`（单文件、静态 CRT）与 `dist\RelaxationReminder-Setup-0.11.25.0.exe`。也可用 CMake：
+产物：`build\RelaxationReminder.exe`（单文件、静态 CRT）与 `dist\RelaxationReminder-Setup-0.11.25.2.exe`。也可用 CMake：
 
 ```bat
 cmake -S . -B build-cmake -G "Visual Studio 16 2019" -A x64

@@ -6,7 +6,7 @@
 ; Output: dist\RelaxationReminder-Setup-<version>.exe
 
 #define MyAppName "休息提醒"
-#define MyAppVersion "0.11.25.0"
+#define MyAppVersion "0.11.25.2"
 #define MyAppPublisher "HRLoveFun"
 #define MyAppExeName "RelaxationReminder.exe"
 
