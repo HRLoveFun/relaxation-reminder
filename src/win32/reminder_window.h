@@ -63,11 +63,15 @@ private:
     HWND snooze_button_ = nullptr;
     HWND close_button_ = nullptr;
     HWND settings_button_ = nullptr;
+    HWND tooltip_ = nullptr;
 
     HFONT title_font_ = nullptr;
     HFONT body_font_ = nullptr;
+    HFONT icon_font_ = nullptr;
     int title_font_height_ = 0;
     int body_font_height_ = 0;
+    int icon_font_height_ = 0;
+    std::wstring icon_font_family_;
 
     bool visible_ = false;
     GrowthCurve growth_;
