@@ -144,6 +144,8 @@ bool ReminderWindow::Create(HINSTANCE instance, HWND owner) {
         return false;
     }
 
+    // Temporary layout size for the hidden window; ShowAtCursor resizes it to
+    // one third of the monitor's short edge before the first display.
     UpdateFonts(320, 320);
     Layout(320, 320);
     return true;
@@ -208,7 +210,21 @@ void ReminderWindow::ShowAtCursor(uint64_t now_ms, bool snooze_used) {
 
     const int work_width = work_area_.right - work_area_.left;
     const int work_height = work_area_.bottom - work_area_.top;
-    int initial_side = MulDiv(320, static_cast<int>(dpi_), 96);
+
+    // Start at one third of the monitor's short edge so the window scales
+    // with the display instead of using a fixed logical size. GetMonitorInfo
+    // returns physical pixels for this per-monitor-DPI-aware process, so no
+    // extra DPI scaling is needed here.
+    int short_edge = 0;
+    if (monitor != nullptr) {
+        short_edge =
+            std::min(monitor_info.rcMonitor.right - monitor_info.rcMonitor.left,
+                     monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top);
+    }
+    if (short_edge <= 0) {
+        short_edge = std::min(work_width, work_height);
+    }
+    int initial_side = std::max(1, short_edge / 3);
     initial_side =
         ClampInt(initial_side, 1, std::min(work_width, work_height));
 
