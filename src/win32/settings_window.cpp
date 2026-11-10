@@ -7,6 +7,7 @@
 #include <string>
 #include <utility>
 
+#include "win32/rounded_ui.h"
 #include "win32/ui_theme.h"
 
 namespace rr {
@@ -17,29 +18,39 @@ constexpr UINT kNameEditId = 3001;
 constexpr UINT kIntervalSliderId = 3002;
 constexpr UINT kRestSliderId = 3003;
 constexpr UINT kSnoozeSliderId = 3004;
-constexpr UINT kMusicCheckId = 3005;
 constexpr UINT kResetButtonId = 3006;
 constexpr UINT kMusicPlaySliderId = 3007;
 constexpr UINT kCloseButtonId = 3008;
 
+// Glyphs from the same icon font as the reminder window's action buttons.
+constexpr wchar_t kResetGlyph[] = L"\xE72C";  // Refresh
+constexpr wchar_t kCloseGlyph[] = L"\xE711";  // Cross
+
 constexpr int kClientWidth = 470;
 constexpr int kClientHeight = 300;
 constexpr int kLabelX = 20;
-constexpr int kControlX = 118;
-constexpr int kSliderWidth = 240;
+constexpr int kControlX = 160;
+constexpr int kSliderWidth = 200;
 constexpr int kValueX = 368;
 constexpr int kFirstRowY = 16;
 constexpr int kRowStep = 38;
 constexpr int kTextHeight = 30;
 constexpr int kEditHeight = 24;
-constexpr int kMusicRowY = 206;
 constexpr int kButtonTop = 252;
 
 constexpr uint32_t kIntervalValues[] = {20, 30, 40, 50, 60};
 constexpr uint32_t kRestValues[] = {5, 10, 15};
 constexpr uint32_t kSnoozeValues[] = {5, 10, 15};
-constexpr uint32_t kMusicPlayValues[] = {30, 40, 50, 60, 70,
-                                         80, 90, 100, 110, 120};
+// 0 switches the rest-end music off; the remaining stops are durations in
+// seconds (0/30/60/90/120).
+constexpr uint32_t kMusicPlayValues[] = {0, 30, 60, 90, 120};
+
+constexpr uint32_t Config::*kMusicSecondsField = &Config::music_play_seconds;
+
+// The panel uses the same white surface as its title bar, so the window reads
+// as one piece instead of a grey sheet inside a white frame.
+constexpr COLORREF kPanelBackground = RGB(255, 255, 255);
+constexpr COLORREF kPanelText = RGB(32, 32, 32);
 
 int NearestIndex(const uint32_t* values, int count, uint32_t value) {
     int best = 0;
@@ -83,7 +94,7 @@ bool SettingsWindow::Create(HINSTANCE instance, HWND owner) {
 
     INITCOMMONCONTROLSEX common_controls = {};
     common_controls.dwSize = sizeof(common_controls);
-    common_controls.dwICC = ICC_BAR_CLASSES;
+    common_controls.dwICC = ICC_BAR_CLASSES | ICC_WIN95_CLASSES;
     InitCommonControlsEx(&common_controls);
 
     WNDCLASSEXW window_class = {};
@@ -94,7 +105,7 @@ bool SettingsWindow::Create(HINSTANCE instance, HWND owner) {
     window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     // Paint the background explicitly so the panel keeps the same light look
     // regardless of the system dark-mode setting.
-    background_ = CreateSolidBrush(RGB(240, 240, 240));
+    background_ = CreateSolidBrush(kPanelBackground);
     window_class.hbrBackground = nullptr;
     window_class.lpszClassName = kWindowClass;
     if (!RegisterClassExW(&window_class) &&
@@ -102,7 +113,9 @@ bool SettingsWindow::Create(HINSTANCE instance, HWND owner) {
         return false;
     }
 
-    const DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU;
+    // WS_CAPTION without WS_SYSMENU keeps the title bar draggable but removes
+    // the title-bar close button; the panel is closed from its icon button.
+    const DWORD style = WS_POPUP | WS_CAPTION;
     const DWORD ex_style =
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_CONTROLPARENT;
     const int scale = static_cast<int>(dpi_);
@@ -119,7 +132,10 @@ bool SettingsWindow::Create(HINSTANCE instance, HWND owner) {
     }
 
     CreateControls();
+    CreateTooltips();
     UpdateFonts();
+    ApplyRoundedWindowCorners(hwnd_, dpi_);
+    ApplyCaptionColors(hwnd_, kPanelBackground, kPanelText);
     Layout();
     return true;
 }
@@ -130,7 +146,7 @@ void SettingsWindow::Destroy() {
     }
     hwnd_ = nullptr;
     name_edit_ = nullptr;
-    music_checkbox_ = nullptr;
+    tooltip_ = nullptr;
     for (Slider& slider : sliders_) {
         slider.track = nullptr;
     }
@@ -141,6 +157,10 @@ void SettingsWindow::Destroy() {
     if (font_ != nullptr) {
         DeleteObject(font_);
         font_ = nullptr;
+    }
+    if (icon_font_ != nullptr) {
+        DeleteObject(icon_font_);
+        icon_font_ = nullptr;
     }
     if (background_ != nullptr) {
         DeleteObject(background_);
@@ -228,13 +248,16 @@ void SettingsWindow::CreateControls() {
                    &Config::rest_duration_minutes, kRestValues, 3};
     sliders_[2] = {make_slider(kSnoozeSliderId),
                    &Config::snooze_duration_minutes, kSnoozeValues, 3};
-    sliders_[3] = {make_slider(kMusicPlaySliderId),
-                   &Config::music_play_seconds, kMusicPlayValues, 10};
     name_edit_ = make_edit(kNameEditId, 40);
-    music_checkbox_ =
-        make_button(kMusicCheckId, L"休息结束时播放音乐", BS_AUTOCHECKBOX);
-    reset_button_ = make_button(kResetButtonId, L"恢复默认值", BS_PUSHBUTTON);
-    close_button_ = make_button(kCloseButtonId, L"关闭", BS_DEFPUSHBUTTON);
+    sliders_[3] = {make_slider(kMusicPlaySliderId), kMusicSecondsField,
+                   kMusicPlayValues, 5};
+
+    // Owner-drawn icon buttons: rounded corners, same font as the reminder
+    // window, with tooltips for their labels.
+    reset_button_ = make_button(kResetButtonId, kResetGlyph, BS_OWNERDRAW);
+    close_button_ = make_button(kCloseButtonId, kCloseGlyph, BS_OWNERDRAW);
+    EnableButtonHover(reset_button_);
+    EnableButtonHover(close_button_);
 
     for (const Slider& slider : sliders_) {
         if (slider.track == nullptr) {
@@ -251,8 +274,8 @@ void SettingsWindow::CreateControls() {
     // that palette even when Windows runs in dark mode.
     HWND controls[] = {sliders_[0].track, sliders_[1].track,
                        sliders_[2].track, sliders_[3].track,
-                       name_edit_,        music_checkbox_,
-                       reset_button_,     close_button_};
+                       name_edit_,        reset_button_,
+                       close_button_};
     for (HWND control : controls) {
         if (control != nullptr) {
             SetWindowTheme(control, L"", L"");
@@ -260,12 +283,52 @@ void SettingsWindow::CreateControls() {
     }
 }
 
+void SettingsWindow::CreateTooltips() {
+    tooltip_ = CreateWindowExW(
+        WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr,
+        WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX, CW_USEDEFAULT, CW_USEDEFAULT,
+        CW_USEDEFAULT, CW_USEDEFAULT, hwnd_, nullptr, instance_, nullptr);
+    if (tooltip_ == nullptr) {
+        return;
+    }
+
+    struct TooltipEntry {
+        HWND button;
+        const wchar_t* text;
+    };
+    const TooltipEntry entries[] = {
+        {reset_button_, L"恢复默认值"},
+        {close_button_, L"关闭"},
+    };
+    for (const TooltipEntry& entry : entries) {
+        if (entry.button == nullptr) {
+            continue;
+        }
+        TOOLINFOW tool = {};
+        tool.cbSize = sizeof(tool);
+        tool.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+        tool.hwnd = hwnd_;
+        tool.uId = reinterpret_cast<UINT_PTR>(entry.button);
+        tool.lpszText = const_cast<LPWSTR>(entry.text);
+        SendMessageW(tooltip_, TTM_ADDTOOLW, 0,
+                     reinterpret_cast<LPARAM>(&tool));
+    }
+}
+
 void SettingsWindow::UpdateFonts() {
+    const int dpi = static_cast<int>(dpi_);
     HFONT new_font = CreateFontW(
-        -MulDiv(10, static_cast<int>(dpi_), 72), 0, 0, 0, FW_NORMAL, FALSE,
-        FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        -MulDiv(10, dpi, 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, kUiFontFamily);
+    HFONT new_icon = CreateFontW(
+        -MulDiv(10, dpi, 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, IconFontFamily());
     if (new_font == nullptr) {
+        if (new_icon != nullptr) {
+            DeleteObject(new_icon);
+        }
         return;
     }
 
@@ -273,15 +336,29 @@ void SettingsWindow::UpdateFonts() {
         DeleteObject(font_);
     }
     font_ = new_font;
+    if (new_icon != nullptr) {
+        if (icon_font_ != nullptr) {
+            DeleteObject(icon_font_);
+        }
+        icon_font_ = new_icon;
+    }
 
-    HWND controls[] = {sliders_[0].track, sliders_[1].track,
-                       sliders_[2].track, sliders_[3].track,
-                       name_edit_,        music_checkbox_,
-                       reset_button_,     close_button_};
-    for (HWND control : controls) {
+    HWND text_controls[] = {sliders_[0].track, sliders_[1].track,
+                            sliders_[2].track, sliders_[3].track,
+                            name_edit_};
+    for (HWND control : text_controls) {
         if (control != nullptr) {
             SendMessageW(control, WM_SETFONT,
                          reinterpret_cast<WPARAM>(font_), TRUE);
+        }
+    }
+
+    HFONT button_font = icon_font_ != nullptr ? icon_font_ : font_;
+    HWND icon_controls[] = {reset_button_, close_button_};
+    for (HWND control : icon_controls) {
+        if (control != nullptr) {
+            SendMessageW(control, WM_SETFONT,
+                         reinterpret_cast<WPARAM>(button_font), TRUE);
         }
     }
     InvalidateRect(hwnd_, nullptr, TRUE);
@@ -294,7 +371,7 @@ void SettingsWindow::Layout() {
     };
 
     const int slider_height = scale(kTextHeight);
-    for (int index = 0; index < 4; ++index) {
+    for (int index = 0; index < 3; ++index) {
         if (sliders_[index].track == nullptr) {
             continue;
         }
@@ -305,28 +382,31 @@ void SettingsWindow::Layout() {
 
     if (name_edit_ != nullptr) {
         const int edit_height = scale(kEditHeight);
-        const int row_top = scale(kFirstRowY) + 4 * scale(kRowStep);
+        const int row_top = scale(kFirstRowY) + 3 * scale(kRowStep);
         MoveWindow(name_edit_, scale(kControlX),
                    row_top + (slider_height - edit_height) / 2,
                    scale(kClientWidth - kControlX - 20), edit_height, TRUE);
     }
 
-    if (music_checkbox_ != nullptr) {
-        const int edit_height = scale(kEditHeight);
-        MoveWindow(music_checkbox_, scale(kLabelX), scale(kMusicRowY),
-                   scale(kClientWidth - kLabelX - 20), edit_height, TRUE);
+    if (sliders_[3].track != nullptr) {
+        const int row_top = scale(kFirstRowY) + 4 * scale(kRowStep);
+        MoveWindow(sliders_[3].track, scale(kControlX), row_top,
+                   scale(kSliderWidth), slider_height, TRUE);
     }
 
-    const int button_width = scale(92);
+    // Both icon buttons sit side by side in a single centred group.
+    const int button_width = scale(48);
     const int button_height = scale(32);
     const int button_top = scale(kButtonTop);
-    const int margin = scale(20);
+    const int button_gap = scale(16);
+    const int group_width = button_width * 2 + button_gap;
+    const int group_left = scale(kClientWidth) / 2 - group_width / 2;
     if (reset_button_ != nullptr) {
-        MoveWindow(reset_button_, margin, button_top, scale(120),
+        MoveWindow(reset_button_, group_left, button_top, button_width,
                    button_height, TRUE);
     }
     if (close_button_ != nullptr) {
-        MoveWindow(close_button_, scale(kClientWidth) - margin - button_width,
+        MoveWindow(close_button_, group_left + button_width + button_gap,
                    button_top, button_width, button_height, TRUE);
     }
 
@@ -338,16 +418,23 @@ void SettingsWindow::SetValues(const Config& config) {
         if (slider.track == nullptr) {
             continue;
         }
-        const int index = NearestIndex(slider.values, slider.count,
-                                       config.*(slider.member));
+        int index = 0;
+        if (slider.member == kMusicSecondsField) {
+            // Position 0 doubles as the "music off" state, so a disabled
+            // checkbox no longer exists and the row stays a single slider.
+            index = config.music_enabled
+                        ? NearestIndex(slider.values + 1, slider.count - 1,
+                                       config.music_play_seconds) +
+                              1
+                        : 0;
+        } else {
+            index = NearestIndex(slider.values, slider.count,
+                                 config.*(slider.member));
+        }
         SendMessageW(slider.track, TBM_SETPOS, TRUE, index);
     }
     if (name_edit_ != nullptr) {
         SetWindowTextW(name_edit_, config.user_name.c_str());
-    }
-    if (music_checkbox_ != nullptr) {
-        SendMessageW(music_checkbox_, BM_SETCHECK,
-                     config.music_enabled ? BST_CHECKED : BST_UNCHECKED, 0);
     }
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
@@ -396,6 +483,15 @@ void SettingsWindow::ApplyLive() {
         } else if (index >= slider.count) {
             index = slider.count - 1;
         }
+        if (slider.member == kMusicSecondsField) {
+            if (index == 0) {
+                config.music_enabled = false;
+            } else {
+                config.music_enabled = true;
+                config.music_play_seconds = slider.values[index];
+            }
+            continue;
+        }
         config.*(slider.member) = slider.values[index];
     }
 
@@ -404,10 +500,6 @@ void SettingsWindow::ApplyLive() {
         GetWindowTextW(name_edit_, buffer, _countof(buffer));
     }
     config.user_name = buffer;
-    if (music_checkbox_ != nullptr) {
-        config.music_enabled =
-            SendMessageW(music_checkbox_, BM_GETCHECK, 0, 0) == BST_CHECKED;
-    }
     config = Sanitize(config);
 
     // The panel does not expose these fields; keep the values it was opened
@@ -469,9 +561,8 @@ void SettingsWindow::CenterOnCursorMonitor() {
 }
 
 void SettingsWindow::PaintLabels(HDC dc) {
-    static const wchar_t* const labels[] = {L"提醒间隔", L"休息时长",
-                                            L"延后时长", L"音乐时长",
-                                            L"显示名称"};
+    static const wchar_t* const labels[] = {
+        L"提醒间隔", L"休息时长", L"延后时长", L"显示名称", L"播放音乐"};
 
     if (font_ == nullptr) {
         return;
@@ -492,16 +583,25 @@ void SettingsWindow::PaintLabels(HDC dc) {
             MulDiv(kFirstRowY, scale, 96) + index * MulDiv(kRowStep, scale, 96);
         const int text_height = MulDiv(kTextHeight, scale, 96);
 
+        // Every row starts at the same left edge; the control column and the
+        // value column are aligned as well.
         RECT label_rect = {MulDiv(kLabelX, scale, 96), row_top,
                            MulDiv(kControlX - 10, scale, 96),
                            row_top + text_height};
         DrawTextW(dc, labels[index], -1, &label_rect,
-                  DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+                  DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
 
-        if (index < 4) {
-            const std::wstring value =
-                std::to_wstring(base_config_.*(sliders_[index].member)) +
-                (index == 3 ? L" 秒" : L" 分钟");
+        std::wstring value;
+        if (index < 3) {
+            value = std::to_wstring(base_config_.*(sliders_[index].member)) +
+                    L" 分钟";
+        } else if (index == 4) {
+            value = base_config_.music_enabled
+                        ? std::to_wstring(base_config_.music_play_seconds) +
+                              L" 秒"
+                        : L"关闭";
+        }
+        if (!value.empty()) {
             RECT value_rect = {MulDiv(kValueX, scale, 96), row_top,
                                client.right - MulDiv(16, scale, 96),
                                row_top + text_height};
@@ -542,6 +642,8 @@ LRESULT SettingsWindow::HandleMessage(UINT message, WPARAM wparam,
                                       LPARAM lparam) {
     switch (message) {
         case WM_SIZE:
+            ApplyRoundedWindowCorners(hwnd_, dpi_);
+            ApplyCaptionColors(hwnd_, kPanelBackground, kPanelText);
             Layout();
             return 0;
 
@@ -553,9 +655,22 @@ LRESULT SettingsWindow::HandleMessage(UINT message, WPARAM wparam,
                          target.right - target.left,
                          target.bottom - target.top,
                          SWP_NOZORDER | SWP_NOACTIVATE);
+            ApplyRoundedWindowCorners(hwnd_, dpi_);
+            ApplyCaptionColors(hwnd_, kPanelBackground, kPanelText);
             UpdateFonts();
             Layout();
             return 0;
+        }
+
+        case WM_DRAWITEM: {
+            const auto* item = reinterpret_cast<const DRAWITEMSTRUCT*>(lparam);
+            if (item != nullptr && item->CtlType == ODT_BUTTON) {
+                DrawRoundedButton(*item,
+                                  icon_font_ != nullptr ? icon_font_ : font_,
+                                  SettingsButtonColors(), dpi_, false);
+                return TRUE;
+            }
+            break;
         }
 
         case WM_PAINT: {
@@ -573,13 +688,6 @@ LRESULT SettingsWindow::HandleMessage(UINT message, WPARAM wparam,
             return 1;
         }
 
-        case WM_CTLCOLORBTN: {
-            HDC dc = reinterpret_cast<HDC>(wparam);
-            SetBkColor(dc, RGB(240, 240, 240));
-            SetBkMode(dc, TRANSPARENT);
-            return reinterpret_cast<LRESULT>(background_);
-        }
-
         case WM_HSCROLL:
             if (lparam != 0) {
                 ApplyLive();
@@ -593,6 +701,7 @@ LRESULT SettingsWindow::HandleMessage(UINT message, WPARAM wparam,
                     RestoreDefaults();
                     return 0;
                 case kCloseButtonId:
+                case IDOK:
                 case IDCANCEL:
                     Hide();
                     return 0;
@@ -609,12 +718,6 @@ LRESULT SettingsWindow::HandleMessage(UINT message, WPARAM wparam,
                     NormalizeName();
                     return 0;
                 }
-            }
-            if (lparam != 0 &&
-                reinterpret_cast<HWND>(lparam) == music_checkbox_ &&
-                HIWORD(wparam) == BN_CLICKED) {
-                ApplyLive();
-                return 0;
             }
             break;
 

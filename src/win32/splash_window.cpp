@@ -1,5 +1,6 @@
 #include "splash_window.h"
 
+#include "win32/rounded_ui.h"
 #include "win32/ui_theme.h"
 
 #include <shellscalingapi.h>
@@ -119,6 +120,7 @@ void SplashWindow::PositionOnCursorMonitor() {
         }
     }
     dpi_ = dpi_x == 0 ? 96 : dpi_x;
+    ApplyRoundedWindowCorners(hwnd_, dpi_);
     RecreateFonts();
 
     const int width = MulDiv(kWidth, static_cast<int>(dpi_), 96);
@@ -160,9 +162,7 @@ void SplashWindow::Paint(HDC dc) {
 
     FillRect(dc, &client,
              static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
-    HBRUSH border = CreateSolidBrush(kBorderColor);
-    FrameRect(dc, &client, border);
-    DeleteObject(border);
+    DrawRoundedPopupBorder(dc, client.right, client.bottom, kBorderColor, dpi_);
 
     SetBkMode(dc, TRANSPARENT);
 
@@ -237,6 +237,7 @@ LRESULT SplashWindow::HandleMessage(UINT message, WPARAM wparam,
 
         case WM_DPICHANGED:
             dpi_ = HIWORD(wparam);
+            ApplyRoundedWindowCorners(hwnd_, dpi_);
             RecreateFonts();
             InvalidateRect(hwnd_, nullptr, TRUE);
             return 0;

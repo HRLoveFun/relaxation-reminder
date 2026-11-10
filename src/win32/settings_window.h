@@ -44,6 +44,7 @@ private:
     LRESULT HandleMessage(UINT message, WPARAM wparam, LPARAM lparam);
 
     void CreateControls();
+    void CreateTooltips();
     void UpdateFonts();
     void Layout();
     void SetValues(const Config& config);
@@ -58,12 +59,13 @@ private:
     HWND hwnd_ = nullptr;
     HWND owner_ = nullptr;
     HWND name_edit_ = nullptr;
-    HWND music_checkbox_ = nullptr;
     HWND reset_button_ = nullptr;
     HWND close_button_ = nullptr;
+    HWND tooltip_ = nullptr;
     Slider sliders_[4];
 
     HFONT font_ = nullptr;
+    HFONT icon_font_ = nullptr;
     HBRUSH background_ = nullptr;
     UINT dpi_ = 96;
     Config base_config_;
