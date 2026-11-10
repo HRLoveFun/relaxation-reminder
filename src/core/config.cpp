@@ -52,6 +52,34 @@ bool IsValidIdleSeconds(uint32_t value) {
     return value >= 1 && value <= kMaxIdleSeconds;
 }
 
+bool IsValidMusicPlaySeconds(uint32_t value) {
+    return value >= kMinMusicPlaySeconds && value <= kMaxMusicPlaySeconds;
+}
+
+bool IsSupportedMusicFileName(const std::string& name) {
+    // Only a bare .wav file name is accepted; the file itself must live in the
+    // app data sound directory and is validated again before playback.
+    if (name.empty() || name.size() > 260) {
+        return false;
+    }
+    if (name.find_first_of("\\/") != std::string::npos ||
+        name.find_first_of("<>:\"|?*") != std::string::npos) {
+        return false;
+    }
+    if (name.size() < 4) {
+        return false;
+    }
+    const size_t offset = name.size() - 4;
+    char extension[5] = {};
+    for (size_t index = 0; index < 4; ++index) {
+        const char character = name[offset + index];
+        extension[index] = (character >= 'A' && character <= 'Z')
+                               ? static_cast<char>(character - 'A' + 'a')
+                               : character;
+    }
+    return std::string(extension) == ".wav";
+}
+
 Config Sanitize(const Config& value) {
     Config result = value;
 
@@ -71,6 +99,12 @@ Config Sanitize(const Config& value) {
     if (result.character_image_file.size() > 260 ||
         result.character_image_file.find_first_of("\\/") != std::string::npos) {
         result.character_image_file.clear();
+    }
+    if (!IsValidMusicPlaySeconds(result.music_play_seconds)) {
+        result.music_play_seconds = kDefaultMusicPlaySeconds;
+    }
+    if (!IsSupportedMusicFileName(result.music_file)) {
+        result.music_file.clear();
     }
 
     return result;

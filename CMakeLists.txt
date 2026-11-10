@@ -13,6 +13,7 @@ add_executable(RelaxationReminder WIN32
     src/win32/main.cpp
     src/win32/reminder_window.cpp
     src/win32/character_image.cpp
+    src/win32/rest_sound.cpp
     src/win32/settings_window.cpp
     src/win32/splash_window.cpp
     src/core/config.cpp
@@ -37,6 +38,11 @@ target_compile_options(RelaxationReminder PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/W4;/EHsc;/utf-8;/permissive-;/experimental:deterministic;"/pathmap:${CMAKE_SOURCE_DIR}=.">
 )
 
+# Delay-load winmm so the audio stack is only mapped on the first chime.
+target_link_options(RelaxationReminder PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/DELAYLOAD:winmm.dll>
+)
+
 if(RR_TEST_MODE)
     target_compile_definitions(RelaxationReminder PRIVATE RR_TEST_MODE)
 endif()
@@ -51,6 +57,8 @@ target_link_libraries(RelaxationReminder PRIVATE
     shell32
     advapi32
     shcore
+    winmm
+    delayimp
 )
 
 set_target_properties(RelaxationReminder PROPERTIES

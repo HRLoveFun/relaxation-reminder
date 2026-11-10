@@ -55,6 +55,7 @@ private:
     void ResizeTo(int side);
     void NotifyOwner(UINT message);
     std::wstring BuildStatus(const StateMachine& machine) const;
+    std::wstring BuildTitle(const StateMachine& machine) const;
 
     HINSTANCE instance_ = nullptr;
     HWND hwnd_ = nullptr;
@@ -77,6 +78,7 @@ private:
     int current_left_ = 0;
     int current_top_ = 0;
     std::wstring status_text_;
+    std::wstring title_text_;
     std::wstring user_name_;
     bool snooze_enabled_ = true;
 

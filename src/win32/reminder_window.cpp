@@ -230,6 +230,7 @@ void ReminderWindow::ShowAtCursor(uint64_t now_ms, bool snooze_used) {
 
     visible_ = true;
     status_text_.clear();
+    title_text_.clear();
     character_.ResetAnimation();
     snooze_enabled_ = !snooze_used;
     if (snooze_button_ != nullptr) {
@@ -287,7 +288,13 @@ void ReminderWindow::Update(uint64_t now_ms, const StateMachine& machine) {
         InvalidateRect(hwnd_, &line, FALSE);
     }
 
-    SetSnoozeEnabled(!machine.snooze_used());
+    const std::wstring title = BuildTitle(machine);
+    if (title != title_text_) {
+        title_text_ = title;
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+
+    SetSnoozeEnabled(machine.CanSnooze());
 }
 
 void ReminderWindow::SetUserName(const std::wstring& name) {
@@ -361,9 +368,20 @@ std::wstring ReminderWindow::BuildStatus(const StateMachine& machine) const {
             return L"休息已暂停，离开键鼠 " +
                    std::to_wstring(machine.idle_threshold_seconds()) +
                    L" 秒后继续";
+        case State::MusicPlaying:
+            return L"音乐播放中 " +
+                   FormatClock(machine.music_remaining_seconds()) + L" / " +
+                   FormatClock(machine.music_total_seconds());
         default:
             return {};
     }
+}
+
+std::wstring ReminderWindow::BuildTitle(const StateMachine& machine) const {
+    if (machine.state() == State::MusicPlaying) {
+        return L"生产队的驴都不敢这么歇！";
+    }
+    return user_name_.empty() ? L"休息一下" : user_name_ + L"，休息一下";
 }
 
 void ReminderWindow::UpdateFonts(int width, int height) {
@@ -588,8 +606,11 @@ void ReminderWindow::PaintContent(HDC dc, int width, int height) {
 
     SetBkMode(dc, TRANSPARENT);
     if (title_font_ != nullptr) {
-        const std::wstring title =
-            user_name_.empty() ? L"休息一下" : user_name_ + L"，休息一下";
+        std::wstring title = title_text_;
+        if (title.empty()) {
+            title = user_name_.empty() ? L"休息一下"
+                                       : user_name_ + L"，休息一下";
+        }
         HGDIOBJ old_font = SelectObject(dc, title_font_);
         SetTextColor(dc, RGB(62, 39, 35));
         RECT title_rect = {0, title_top, width, title_top + title_height};

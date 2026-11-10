@@ -58,9 +58,10 @@ private:
     HWND hwnd_ = nullptr;
     HWND owner_ = nullptr;
     HWND name_edit_ = nullptr;
+    HWND music_checkbox_ = nullptr;
     HWND reset_button_ = nullptr;
     HWND close_button_ = nullptr;
-    Slider sliders_[3];
+    Slider sliders_[4];
 
     HFONT font_ = nullptr;
     HBRUSH background_ = nullptr;

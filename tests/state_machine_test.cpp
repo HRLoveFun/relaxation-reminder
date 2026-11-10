@@ -25,12 +25,41 @@ void Check(bool condition, const char* expression, int line) {
 rr::StateMachine MakeMachine(uint32_t interval_minutes = 30,
                              uint32_t rest_minutes = 5,
                              uint32_t snooze_minutes = 5,
-                             uint32_t idle_seconds = 10) {
+                             uint32_t idle_seconds = 10,
+                             uint32_t music_play_seconds = 60,
+                             bool music_enabled = true) {
     rr::StateMachine machine;
     machine.Configure(interval_minutes, rest_minutes, snooze_minutes,
-                      idle_seconds);
+                      idle_seconds, music_play_seconds, music_enabled);
     machine.Start(0);
     return machine;
+}
+
+// Shows a reminder and lets the rest countdown begin.
+rr::StateMachine MachineInRest(uint32_t music_play_seconds = 60,
+                               bool music_enabled = true) {
+    rr::StateMachine machine = MakeMachine(30, 5, 5, 10, music_play_seconds,
+                                           music_enabled);
+    machine.Tick(30 * kMinute, 0);
+    machine.Tick(30 * kMinute, 10000);
+    return machine;
+}
+
+// Runs 50 ms ticks (the UI cadence) until the state changes or the deadline
+// passes. Returns the first result that dismissed the window.
+rr::TickResult RunUntilDismiss(rr::StateMachine* machine, uint64_t* now,
+                               uint64_t limit_ms, uint32_t idle_ms = 10000) {
+    rr::TickResult last;
+    uint64_t elapsed = 0;
+    while (elapsed < limit_ms) {
+        *now += 50;
+        elapsed += 50;
+        last = machine->Tick(*now, idle_ms);
+        if (last.final_dismiss) {
+            return last;
+        }
+    }
+    return last;
 }
 
 void ShowsAfterInterval() {
@@ -60,7 +89,7 @@ void RestStartsOnlyWhenIdle() {
     CHECK(machine.rest_remaining_seconds() == 300);
 }
 
-void RestCountsDownAndDismisses() {
+void RestEndsIntoMusicThenDismisses() {
     rr::StateMachine machine = MakeMachine();
     machine.Tick(30 * kMinute, 0);
     uint64_t now = 30 * kMinute;
@@ -71,13 +100,128 @@ void RestCountsDownAndDismisses() {
         rr::TickResult result = machine.Tick(now, 10000);
         CHECK(!result.final_dismiss);
     }
+    CHECK(machine.rest_remaining_seconds() == 1);
 
     now += kSecond;
     rr::TickResult result = machine.Tick(now, 10000);
+    CHECK(result.music_start);
+    CHECK(!result.final_dismiss);
+    CHECK(!result.hide_reminder);
+    CHECK(machine.state() == rr::State::MusicPlaying);
+    CHECK(machine.IsVisible());
+    CHECK(machine.music_remaining_seconds() == 60);
+    CHECK(machine.music_total_seconds() == 60);
+
+    now += 60 * kSecond;
+    result = machine.Tick(now, 10000);
     CHECK(result.final_dismiss);
     CHECK(result.hide_reminder);
     CHECK(machine.state() == rr::State::WaitInterval);
     CHECK(machine.interval_remaining_seconds() == 30 * 60);
+}
+
+void MusicPlaysForConfiguredDuration() {
+    rr::StateMachine machine = MakeMachine(30, 5, 5, 10, 30);
+    machine.Tick(30 * kMinute, 0);
+    machine.Tick(30 * kMinute, 10000);
+
+    machine.Tick(30 * kMinute + 300 * kSecond, 10000);
+    CHECK(machine.state() == rr::State::MusicPlaying);
+    CHECK(machine.music_remaining_seconds() == 30);
+
+    machine.Tick(30 * kMinute + 329 * kSecond, 10000);
+    CHECK(machine.state() == rr::State::MusicPlaying);
+    CHECK(!machine.timing_paused());
+}
+
+void MusicFadesNearTheEnd() {
+    rr::StateMachine machine = MakeMachine(30, 5, 5, 10, 60);
+    machine.Tick(30 * kMinute, 0);
+    uint64_t now = 30 * kMinute;
+    machine.Tick(now, 10000);
+    now += 300 * kSecond;
+    machine.Tick(now, 10000);
+    CHECK(machine.state() == rr::State::MusicPlaying);
+
+    // Tick at the UI cadence so the fade edge is observable.
+    const uint64_t end = now + 60 * kSecond;
+    bool faded = false;
+    while (now + 50 < end) {
+        now += 50;
+        rr::TickResult result = machine.Tick(now, 10000);
+        if (result.music_fade_out) {
+            faded = true;
+            CHECK(machine.music_fading());
+            CHECK(!result.final_dismiss);
+        }
+    }
+    CHECK(faded);
+}
+
+void InputDuringMusicFadesAndDismisses() {
+    rr::StateMachine machine = MachineInRest(60, true);
+    uint64_t now = 30 * kMinute + 300 * kSecond;
+    rr::TickResult result = machine.Tick(now, 10000);
+    CHECK(result.music_start);
+    CHECK(machine.state() == rr::State::MusicPlaying);
+    CHECK(!machine.CanSnooze());
+    CHECK(!machine.TrySnooze(now));
+
+    now += 10 * kSecond;
+    result = machine.Tick(now, 10000);
+    CHECK(result.music_fade_out || machine.music_remaining_seconds() == 50);
+    CHECK(machine.state() == rr::State::MusicPlaying);
+
+    // Input triggers the fade and shortens the remaining window.
+    now += 50;
+    result = machine.Tick(now, 1000);
+    CHECK(result.music_fade_out);
+    CHECK(machine.music_fading());
+    CHECK(machine.state() == rr::State::MusicPlaying);
+
+    result = RunUntilDismiss(&machine, &now, 2000);
+    CHECK(result.final_dismiss);
+    CHECK(machine.state() == rr::State::WaitInterval);
+    CHECK(!machine.IsVisible());
+}
+
+void MusicDisabledEndsReminderAtRestEnd() {
+    rr::StateMachine machine = MachineInRest(60, false);
+    uint64_t now = 30 * kMinute;
+    rr::TickResult result = machine.Tick(now + 300 * kSecond, 10000);
+    CHECK(result.final_dismiss);
+    CHECK(result.hide_reminder);
+    CHECK(!result.music_start);
+    CHECK(machine.state() == rr::State::WaitInterval);
+}
+
+void ToggleMusicAppliesImmediately() {
+    rr::StateMachine machine = MakeMachine(30, 5, 5, 10, 60, false);
+    machine.Tick(30 * kMinute, 0);
+    machine.Tick(30 * kMinute, 10000);
+    CHECK(machine.state() == rr::State::RestRunning);
+
+    machine.SetMusicEnabled(true);
+    rr::TickResult result = machine.Tick(30 * kMinute + 300 * kSecond, 10000);
+    CHECK(result.music_start);
+    CHECK(machine.state() == rr::State::MusicPlaying);
+}
+
+void PauseFreezesMusicPlayback() {
+    rr::StateMachine machine = MachineInRest(60, true);
+    uint64_t now = 30 * kMinute + 300 * kSecond;
+    machine.Tick(now, 10000);
+    CHECK(machine.state() == rr::State::MusicPlaying);
+
+    machine.SetTimingPaused(true);
+    rr::TickResult result = machine.Tick(now + 20 * kSecond, 10000);
+    CHECK(!result.final_dismiss);
+    CHECK(machine.music_remaining_seconds() == 60);
+
+    machine.SetTimingPaused(false);
+    result = machine.Tick(now + 21 * kSecond, 10000);
+    CHECK(machine.state() == rr::State::MusicPlaying);
+    CHECK(machine.music_remaining_seconds() == 59);
 }
 
 void InputPausesRestAndKeepsRemaining() {
@@ -107,7 +251,8 @@ void InputPausesRestAndKeepsRemaining() {
 
     now += 5 * kMinute;
     result = machine.Tick(now, 10000);
-    CHECK(result.final_dismiss);
+    CHECK(result.music_start);
+    CHECK(machine.state() == rr::State::MusicPlaying);
 }
 
 void SnoozeOnceAndResetsNextCycle() {
@@ -184,8 +329,8 @@ void PauseFreezesRestAndExpansion() {
 
     machine.SetTimingPaused(false);
     result = machine.Tick(35 * kMinute + 300 * kSecond, 10000);
-    CHECK(result.final_dismiss);
-    CHECK(machine.state() == rr::State::WaitInterval);
+    CHECK(result.music_start);
+    CHECK(machine.state() == rr::State::MusicPlaying);
 }
 
 void SleepCountsForIntervalOnly() {
@@ -222,7 +367,7 @@ void ConfigChangesApplyNextCycle() {
     rr::StateMachine machine = MakeMachine();
     machine.Tick(10 * kMinute, 0);
 
-    machine.Configure(5, 10, 2, 5);
+    machine.Configure(5, 10, 2, 5, 60, true);
     rr::TickResult result = machine.Tick(30 * kMinute, 0);
     CHECK(result.show_reminder);
 
@@ -272,6 +417,8 @@ void ConfigValidationFallsBack() {
     config.snooze_duration_minutes = 0;
     config.idle_threshold_seconds = 3601;
     config.character_image_file = "..\\escape.png";
+    config.music_play_seconds = 0;
+    config.music_file = "..\\escape.wav";
     config.user_name = L"  \r\n";
 
     rr::Config sanitized = rr::Sanitize(config);
@@ -281,6 +428,9 @@ void ConfigValidationFallsBack() {
     CHECK(sanitized.idle_threshold_seconds == 10);
     CHECK(sanitized.character_image_file.empty());
     CHECK(sanitized.autostart);
+    CHECK(sanitized.music_enabled);
+    CHECK(sanitized.music_play_seconds == 60);
+    CHECK(sanitized.music_file.empty());
     CHECK(sanitized.user_name == L"牛马");
 
     config.user_name = L"  小 明  ";
@@ -305,12 +455,28 @@ void ConfigValidationFallsBack() {
     config.snooze_duration_minutes = 1;
     config.idle_threshold_seconds = 3600;
     config.character_image_file = "character.png";
+    config.music_play_seconds = 120;
+    config.music_file = "Tone.WAV";
     sanitized = rr::Sanitize(config);
     CHECK(sanitized.reminder_interval_minutes == 1440);
     CHECK(sanitized.rest_duration_minutes == 1);
     CHECK(sanitized.snooze_duration_minutes == 1);
     CHECK(sanitized.idle_threshold_seconds == 3600);
     CHECK(sanitized.character_image_file == "character.png");
+    CHECK(sanitized.music_play_seconds == 120);
+    CHECK(sanitized.music_file == "Tone.WAV");
+
+    config.music_play_seconds = 121;
+    config.music_file = "tone.mp3";
+    sanitized = rr::Sanitize(config);
+    CHECK(sanitized.music_play_seconds == 60);
+    CHECK(sanitized.music_file.empty());
+
+    config.music_play_seconds = 30;
+    config.music_file = "tone.wav";
+    sanitized = rr::Sanitize(config);
+    CHECK(sanitized.music_play_seconds == 30);
+    CHECK(sanitized.music_file == "tone.wav");
 }
 
 }  // namespace
@@ -318,7 +484,6 @@ void ConfigValidationFallsBack() {
 int main() {
     ShowsAfterInterval();
     RestStartsOnlyWhenIdle();
-    RestCountsDownAndDismisses();
     InputPausesRestAndKeepsRemaining();
     ExpansionContinuesWhileResting();
     SnoozeOnceAndResetsNextCycle();
@@ -326,6 +491,13 @@ int main() {
     PauseFreezesRestAndExpansion();
     SleepCountsForIntervalOnly();
     CloseReminderEndsCycle();
+    RestEndsIntoMusicThenDismisses();
+    MusicPlaysForConfiguredDuration();
+    MusicFadesNearTheEnd();
+    InputDuringMusicFadesAndDismisses();
+    MusicDisabledEndsReminderAtRestEnd();
+    ToggleMusicAppliesImmediately();
+    PauseFreezesMusicPlayback();
     ConfigChangesApplyNextCycle();
     ConfigValidationFallsBack();
     GrowthReachesCapInSixtySeconds();

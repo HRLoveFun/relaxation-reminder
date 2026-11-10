@@ -17,11 +17,13 @@ constexpr UINT kNameEditId = 3001;
 constexpr UINT kIntervalSliderId = 3002;
 constexpr UINT kRestSliderId = 3003;
 constexpr UINT kSnoozeSliderId = 3004;
+constexpr UINT kMusicCheckId = 3005;
 constexpr UINT kResetButtonId = 3006;
+constexpr UINT kMusicPlaySliderId = 3007;
 constexpr UINT kCloseButtonId = 3008;
 
 constexpr int kClientWidth = 470;
-constexpr int kClientHeight = 232;
+constexpr int kClientHeight = 300;
 constexpr int kLabelX = 20;
 constexpr int kControlX = 118;
 constexpr int kSliderWidth = 240;
@@ -30,11 +32,14 @@ constexpr int kFirstRowY = 16;
 constexpr int kRowStep = 38;
 constexpr int kTextHeight = 30;
 constexpr int kEditHeight = 24;
-constexpr int kButtonTop = 184;
+constexpr int kMusicRowY = 206;
+constexpr int kButtonTop = 252;
 
 constexpr uint32_t kIntervalValues[] = {20, 30, 40, 50, 60};
 constexpr uint32_t kRestValues[] = {5, 10, 15};
 constexpr uint32_t kSnoozeValues[] = {5, 10, 15};
+constexpr uint32_t kMusicPlayValues[] = {30, 40, 50, 60, 70,
+                                         80, 90, 100, 110, 120};
 
 int NearestIndex(const uint32_t* values, int count, uint32_t value) {
     int best = 0;
@@ -57,7 +62,9 @@ bool SameConfig(const Config& left, const Config& right) {
            left.idle_threshold_seconds == right.idle_threshold_seconds &&
            left.autostart == right.autostart &&
            left.user_name == right.user_name &&
-           left.character_image_file == right.character_image_file;
+           left.character_image_file == right.character_image_file &&
+           left.music_enabled == right.music_enabled &&
+           left.music_play_seconds == right.music_play_seconds;
 }
 
 }  // namespace
@@ -123,6 +130,7 @@ void SettingsWindow::Destroy() {
     }
     hwnd_ = nullptr;
     name_edit_ = nullptr;
+    music_checkbox_ = nullptr;
     for (Slider& slider : sliders_) {
         slider.track = nullptr;
     }
@@ -220,7 +228,11 @@ void SettingsWindow::CreateControls() {
                    &Config::rest_duration_minutes, kRestValues, 3};
     sliders_[2] = {make_slider(kSnoozeSliderId),
                    &Config::snooze_duration_minutes, kSnoozeValues, 3};
+    sliders_[3] = {make_slider(kMusicPlaySliderId),
+                   &Config::music_play_seconds, kMusicPlayValues, 10};
     name_edit_ = make_edit(kNameEditId, 40);
+    music_checkbox_ =
+        make_button(kMusicCheckId, L"休息结束时播放音乐", BS_AUTOCHECKBOX);
     reset_button_ = make_button(kResetButtonId, L"恢复默认值", BS_PUSHBUTTON);
     close_button_ = make_button(kCloseButtonId, L"关闭", BS_DEFPUSHBUTTON);
 
@@ -238,8 +250,9 @@ void SettingsWindow::CreateControls() {
     // The panel uses a fixed light palette; classic (unthemed) controls keep
     // that palette even when Windows runs in dark mode.
     HWND controls[] = {sliders_[0].track, sliders_[1].track,
-                       sliders_[2].track, name_edit_,      reset_button_,
-                       close_button_};
+                       sliders_[2].track, sliders_[3].track,
+                       name_edit_,        music_checkbox_,
+                       reset_button_,     close_button_};
     for (HWND control : controls) {
         if (control != nullptr) {
             SetWindowTheme(control, L"", L"");
@@ -262,8 +275,9 @@ void SettingsWindow::UpdateFonts() {
     font_ = new_font;
 
     HWND controls[] = {sliders_[0].track, sliders_[1].track,
-                       sliders_[2].track, name_edit_,      reset_button_,
-                       close_button_};
+                       sliders_[2].track, sliders_[3].track,
+                       name_edit_,        music_checkbox_,
+                       reset_button_,     close_button_};
     for (HWND control : controls) {
         if (control != nullptr) {
             SendMessageW(control, WM_SETFONT,
@@ -280,7 +294,7 @@ void SettingsWindow::Layout() {
     };
 
     const int slider_height = scale(kTextHeight);
-    for (int index = 0; index < 3; ++index) {
+    for (int index = 0; index < 4; ++index) {
         if (sliders_[index].track == nullptr) {
             continue;
         }
@@ -291,10 +305,16 @@ void SettingsWindow::Layout() {
 
     if (name_edit_ != nullptr) {
         const int edit_height = scale(kEditHeight);
-        const int row_top = scale(kFirstRowY) + 3 * scale(kRowStep);
+        const int row_top = scale(kFirstRowY) + 4 * scale(kRowStep);
         MoveWindow(name_edit_, scale(kControlX),
                    row_top + (slider_height - edit_height) / 2,
                    scale(kClientWidth - kControlX - 20), edit_height, TRUE);
+    }
+
+    if (music_checkbox_ != nullptr) {
+        const int edit_height = scale(kEditHeight);
+        MoveWindow(music_checkbox_, scale(kLabelX), scale(kMusicRowY),
+                   scale(kClientWidth - kLabelX - 20), edit_height, TRUE);
     }
 
     const int button_width = scale(92);
@@ -325,17 +345,23 @@ void SettingsWindow::SetValues(const Config& config) {
     if (name_edit_ != nullptr) {
         SetWindowTextW(name_edit_, config.user_name.c_str());
     }
+    if (music_checkbox_ != nullptr) {
+        SendMessageW(music_checkbox_, BM_SETCHECK,
+                     config.music_enabled ? BST_CHECKED : BST_UNCHECKED, 0);
+    }
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 void SettingsWindow::RestoreDefaults() {
     // Reset is immediate and keeps the panel open. Autostart is owned by the
     // tray menu and idle_threshold_seconds is config-file only, so neither is
-    // touched here.
+    // touched here. The chosen music file is kept as well; resetting it would
+    // silently delete a user-selected file.
     Config config = base_config_;
     config.reminder_interval_minutes = kDefaultReminderIntervalMinutes;
     config.rest_duration_minutes = kDefaultRestDurationMinutes;
     config.snooze_duration_minutes = kDefaultSnoozeDurationMinutes;
+    config.music_play_seconds = kDefaultMusicPlaySeconds;
     config.user_name = kDefaultUserName;
     config = Sanitize(config);
 
@@ -378,12 +404,17 @@ void SettingsWindow::ApplyLive() {
         GetWindowTextW(name_edit_, buffer, _countof(buffer));
     }
     config.user_name = buffer;
+    if (music_checkbox_ != nullptr) {
+        config.music_enabled =
+            SendMessageW(music_checkbox_, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    }
     config = Sanitize(config);
 
     // The panel does not expose these fields; keep the values it was opened
     // with so a tray toggle or a config-file edit is not overwritten.
     config.idle_threshold_seconds = base_config_.idle_threshold_seconds;
     config.autostart = base_config_.autostart;
+    config.music_file = base_config_.music_file;
 
     if (!SameConfig(config, base_config_)) {
         base_config_ = config;
@@ -439,7 +470,8 @@ void SettingsWindow::CenterOnCursorMonitor() {
 
 void SettingsWindow::PaintLabels(HDC dc) {
     static const wchar_t* const labels[] = {L"提醒间隔", L"休息时长",
-                                            L"延后时长", L"显示名称"};
+                                            L"延后时长", L"音乐时长",
+                                            L"显示名称"};
 
     if (font_ == nullptr) {
         return;
@@ -455,7 +487,7 @@ void SettingsWindow::PaintLabels(HDC dc) {
     SetBkMode(dc, TRANSPARENT);
     SetTextColor(dc, RGB(32, 32, 32));
     HGDIOBJ old = SelectObject(dc, font_);
-    for (int index = 0; index < 4; ++index) {
+    for (int index = 0; index < 5; ++index) {
         const int row_top =
             MulDiv(kFirstRowY, scale, 96) + index * MulDiv(kRowStep, scale, 96);
         const int text_height = MulDiv(kTextHeight, scale, 96);
@@ -466,10 +498,10 @@ void SettingsWindow::PaintLabels(HDC dc) {
         DrawTextW(dc, labels[index], -1, &label_rect,
                   DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
 
-        if (index < 3) {
+        if (index < 4) {
             const std::wstring value =
                 std::to_wstring(base_config_.*(sliders_[index].member)) +
-                L" 分钟";
+                (index == 3 ? L" 秒" : L" 分钟");
             RECT value_rect = {MulDiv(kValueX, scale, 96), row_top,
                                client.right - MulDiv(16, scale, 96),
                                row_top + text_height};
@@ -577,6 +609,12 @@ LRESULT SettingsWindow::HandleMessage(UINT message, WPARAM wparam,
                     NormalizeName();
                     return 0;
                 }
+            }
+            if (lparam != 0 &&
+                reinterpret_cast<HWND>(lparam) == music_checkbox_ &&
+                HIWORD(wparam) == BN_CLICKED) {
+                ApplyLive();
+                return 0;
             }
             break;
 

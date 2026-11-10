@@ -4,6 +4,7 @@
 
 1 RT_MANIFEST "src/resources/app.manifest"
 1 ICON "src/resources/app.ico"
+2 WAVE "src/resources/rest_music.wav"
 
 1 VERSIONINFO
 FILEVERSION 0, 11, 25, 0
