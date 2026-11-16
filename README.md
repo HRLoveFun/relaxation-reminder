@@ -28,7 +28,7 @@ https://raw.githubusercontent.com/HRLoveFun/relaxation-reminder/main/INSTALL.md
 
 ### 手动安装（备用）
 
-1. 从 [Releases](https://github.com/HRLoveFun/relaxation-reminder/releases/latest) 下载 `RelaxationReminder-Setup-0.11.25.2.exe`。
+1. 从 [Releases](https://github.com/HRLoveFun/relaxation-reminder/releases/latest) 下载 `RelaxationReminder-Setup-0.11.25.3.exe`。
 2. 双击安装。当前用户安装，无需管理员权限，默认目录 `%LOCALAPPDATA%\Programs\RelaxationReminder`；SmartScreen 提示时选“更多信息”→“仍要运行”。
 3. 安装后自动启动并常驻托盘。想立刻看效果：右键托盘图标 → **立即休息**。
 
@@ -37,7 +37,7 @@ https://raw.githubusercontent.com/HRLoveFun/relaxation-reminder/main/INSTALL.md
 #### 命令行静默安装
 
 ```powershell
-Start-Process -FilePath '.\RelaxationReminder-Setup-0.11.25.2.exe' `
+Start-Process -FilePath '.\RelaxationReminder-Setup-0.11.25.3.exe' `
   -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait
 Start-Process "$env:LOCALAPPDATA\Programs\RelaxationReminder\RelaxationReminder.exe"
 ```
@@ -54,7 +54,7 @@ Windows 10 1809 及以上，64 位。无需管理员权限，无需 .NET / Visua
 
 - **提醒会“长大”**：窗口从鼠标位置出现，60 秒内指数扩大到工作区面积的 30%，持续占据视野。
 - **只有离开键鼠才算休息**：空闲满阈值（默认 10 秒）才开始休息倒计时；中途操作则暂停，再次离开后继续。
-- **不抢焦点、轻量常驻**：置顶但不抢输入焦点；exe 约 360 KB（含内置音乐），空闲内存约 17 MB，无第三方运行时与联网请求。
+- **不抢焦点、轻量常驻**：置顶但不抢输入焦点；exe 约 760 KB（含内置音乐），空闲内存约 17 MB，无第三方运行时与联网请求。
 
 ## 功能
 
@@ -131,9 +131,9 @@ Windows 10 1809 及以上，64 位。无需管理员权限，无需 .NET / Visua
 
 ### 休息结束音乐
 
-休息倒计时归零后开始循环播放音乐，持续 `music_play_seconds`（默认 60 秒，面板可调 30–120 秒）；每遍播放 2 秒后停顿 3 秒，再继续下一遍。期间提醒窗口保持打开、标题显示“生产队的驴都不敢这么歇！”。播放期间动键盘或鼠标，音乐在 1 秒内淡出，窗口在 1 秒后关闭；关闭、延后、暂停计时、休眠或退出时音乐立即停止。关闭音乐时，休息倒计时结束即关闭窗口（旧行为）。
+休息倒计时归零后开始循环播放音乐，持续 `music_play_seconds`（默认 60 秒，面板可调 30–120 秒）；每遍播放完后停顿 3 秒，再继续下一遍。期间提醒窗口保持打开、标题显示“生产队的驴都不敢这么歇！”。播放期间动键盘或鼠标，音乐在 1 秒内淡出，窗口在 1 秒后关闭；关闭、延后、暂停计时、休眠或退出时音乐立即停止。关闭音乐时，休息倒计时结束即关闭窗口（旧行为）。
 
-托盘右键 → **选择音乐**，WAV 复制到 `%APPDATA%\RelaxationReminder\sound`；**恢复默认音乐** 可还原。仅支持 PCM WAV（8/16 位、1~2 声道、8~48 kHz），单文件 ≤5 MB；缺失或格式不符时回退内置音乐。内置音乐由程序合成（`tools/make_music.py`），复刻了原提示音前 2 秒的铃声，不包含第三方音频。
+托盘右键 → **选择音乐**，WAV 复制到 `%APPDATA%\RelaxationReminder\sound`；**恢复默认音乐** 可还原。仅支持 PCM WAV（8/16 位、1~2 声道、8~48 kHz），单文件 ≤5 MB；缺失或格式不符时回退内置音乐。内置音乐为约 15.6 秒的驴叫声片段（16 kHz 单声道 16-bit PCM WAV），内嵌在 exe 中。
 
 ### 开机自启与卸载
 
@@ -170,7 +170,7 @@ build.bat test
 build.bat installer
 ```
 
-产物：`build\RelaxationReminder.exe`（单文件、静态 CRT）与 `dist\RelaxationReminder-Setup-0.11.25.2.exe`。也可用 CMake：
+产物：`build\RelaxationReminder.exe`（单文件、静态 CRT）与 `dist\RelaxationReminder-Setup-0.11.25.3.exe`。也可用 CMake：
 
 ```bat
 cmake -S . -B build-cmake -G "Visual Studio 16 2019" -A x64
