@@ -60,7 +60,7 @@
 - 链接：`/MT` 静态 CRT，避免 VC++ 运行时分发；`/O2 /Gy /OPT:REF /OPT:ICF`，关闭 RTTI，异常仅在必要处使用。
 - 依赖：仅系统库 `user32.lib gdi32.lib gdiplus.lib comdlg32.lib comctl32.lib uxtheme.lib shell32.lib advapi32.lib shcore.lib winmm.lib delayimp.lib`，不引入任何第三方库。GDI+（`gdiplus.dll`）与 winmm 均为 Windows 自带组件；winmm 通过 `/DELAYLOAD` 延迟到首次播放音乐时加载。
 - 界面：原生 Win32 窗口 + 自绘圆角 `BUTTON` 控件 + GDI 绘制占位方块 + GDI+ 解码用户形象，不引入 UI 框架。
-- 体积预算：exe ≤800 KB（硬指标 1 MB）；资源为图标、版本信息与约 486 KB 内置音乐。
+- 体积预算：exe ≤1 MB（硬指标 1 MB）；资源为图标、版本信息与约 729 KB 内置音乐。
 
 ### 3.4 代码结构
 
@@ -257,7 +257,7 @@ src/
 - 淡出实现：软件音量包络（8-bit 无符号 / 16-bit 有符号缩放），对尚未排队的音频生效；`FadeOutRestMusic()` 记录当前样本位置，800 ms 线性降到 0。安全超时（淡出 + 2 s）后 `waveOutReset` / `waveOutUnprepareHeader` / `waveOutClose` 释放设备。
 - 停止：`StopRestMusic()` 在手动关闭、延后、暂停计时、`PBT_APMSUSPEND`、程序退出、窗口最终消失时调用。
 - 格式白名单：PCM WAV（`format=1`）、8/16 位、1~2 声道、8~48 kHz、`data` 块非空，单文件 ≤5 MB；只接受裸文件名，文件存放于 `%APPDATA%\RelaxationReminder\sound\`。压缩 WAV/MP3/AAC 不支持，避免 N 版编解码器缺失。
-- 内置音乐：`src/resources/rest_music.wav`，为约 15.6 秒的驴叫声片段，16 kHz 单声道 16-bit PCM、约 486 KB，以资源类型 `WAVE`、ID 2 编译进 exe；由 Python `wave` 模块重写，只含 RIFF/fmt/data 块，无 LIST/INFO 等元数据。
+- 内置音乐：`src/resources/rest_music.wav`，为约 15.6 秒的驴叫声片段，24 kHz 单声道 16-bit PCM、约 729 KB，以资源类型 `WAVE`、ID 2 编译进 exe；由 Python `wave` 模块重写，只含 RIFF/fmt/data 块，无 LIST/INFO 等元数据。
 - 音量：不提供单条音量控制，由系统音量决定。
 - 设置入口：设置面板最后一行“播放音乐”用单个拖动条表示开关与时长（0/30/60/90/120，0 = 关闭）；托盘菜单增加勾选项、“选择音乐”“恢复默认音乐”。“恢复默认值”将音乐时长恢复 60 秒，不改动音乐开关与用户文件。
 
@@ -292,7 +292,7 @@ music_file=
 
 - 发布形态：默认由 AI 智能体按 README 提示词自动安装；手动备用为单一安装包 `RelaxationReminder-Setup-<version>.exe`（Inno Setup 6 编译，每用户安装，无需管理员权限），内含单个核心程序 `RelaxationReminder.exe`（无 DLL、无外部资源目录）。不提供便携版，避免从压缩包临时目录运行、自启路径失效和升级残留。
 - 安装目录：`%LOCALAPPDATA%\Programs\RelaxationReminder`；开始菜单快捷方式必装，桌面快捷方式可选（默认不勾选）。
-- 版本资源：exe 写入 `FileVersion 0.11.25.3`、`ProductVersion 0.11.25.3` 和应用图标（与默认形象一致的琥珀色圆角方块）；托盘与任务栏使用同一图标。
+- 版本资源：exe 写入 `FileVersion 0.11.25.4`、`ProductVersion 0.11.25.4` 和应用图标（与默认形象一致的琥珀色圆角方块）；托盘与任务栏使用同一图标。
 - 升级：同 AppId 覆盖安装；安装前向已运行实例的隐藏窗口发送 `WM_CLOSE`，等待其退出后替换文件。用户配置与自定义形象不受影响。
 - 卸载：删除程序文件、快捷方式、卸载项与自启注册表值；默认保留 `%APPDATA%\RelaxationReminder` 下的配置和自定义形象，重装后继续生效。
 - 签名：不做代码签名（2026-11-06 决定）。首次运行安装包可能出现 SmartScreen“Windows 已保护你的电脑”，需用户点击“更多信息 → 仍要运行”；README 提供说明。未签名也可能触发少数杀软误报。
@@ -335,7 +335,7 @@ music_file=
 
 - 统计范围：核心 exe 为 `RelaxationReminder.exe` 本体 + 内嵌资源；安装包为 `RelaxationReminder-Setup-<version>.exe` 单文件。均不含 Windows 自带的系统 DLL/运行库，不含用户自定义形象文件。不依赖 VC++ Redistributable。
 - 测量：`(Get-Item .\RelaxationReminder.exe).Length` 与 `(Get-Item .\dist\RelaxationReminder-Setup-<version>.exe).Length`，连续构建 3 次取最大值。
-- 目标：核心 exe ≤800 KB（硬指标 ≤1 MB）；安装包 ≤3 MB（单独记录，不计入 1 MB 判定）。当前构建含内置音乐实测 exe 约 760 KB（778,752 B）；安装包发布时实测记录。
+- 目标：核心 exe ≤1 MB（与硬指标一致）；安装包 ≤3 MB（单独记录，不计入 1 MB 判定）。当前构建含内置音乐实测 exe 约 0.98 MB（1,027,584 B）；安装包发布时实测记录。
 
 ### 12.2 内存占用
 
@@ -346,7 +346,7 @@ music_file=
   - `Get-Counter '\Process(*)\Working Set - Private'`（性能计数器实例名会截断为 15 字符）。
 - 采样：启动后预热 5 分钟，空闲状态每 30 秒采样一次、持续 30 分钟，记录平均值与最大值；提醒显示期间每 5 秒采样一次、持续 5 分钟。
 - 判定：默认形象场景最大值 ≤ min(物理内存 1%, 20 MB)；加载自定义形象场景 ≤ min(物理内存 1%, 50 MB)。
-- 音乐：待机不加载 winmm（延迟加载），零增量；播放内置音乐的瞬时增量约 0.7~0.9 MB（winmm 映射 + 486 KB PCM + 4 个 40 ms 输出缓冲）；用户 5 MB WAV 瞬时增量约 ≤6 MB。测量时在播放开始后以 50 ms 间隔轮询 `PrivateMemorySize64` 取峰值；自定义形象与音乐同时存在时目标 ≤60 MB。
+- 音乐：待机不加载 winmm（延迟加载），零增量；播放内置音乐的瞬时增量约 1.0~1.2 MB（winmm 映射 + 729 KB PCM + 4 个 40 ms 输出缓冲）；用户 5 MB WAV 瞬时增量约 ≤6 MB。测量时在播放开始后以 50 ms 间隔轮询 `PrivateMemorySize64` 取峰值；自定义形象与音乐同时存在时目标 ≤60 MB。
 
 ### 12.3 空闲 CPU
 
@@ -430,7 +430,7 @@ music_file=
 12. 开机自启只保留在托盘菜单（2026-11-06）：设置面板移除该行，“恢复默认值”不改动自启状态。
 13. 设置面板档位化（2026-11-06）：三个时间参数改为拖动条（提醒间隔 20–60 步长 10，休息/延后 5/10/15），移除右侧说明与红色校验提示；空闲阈值仅保留配置文件入口，重置不改动该值；全界面统一使用 Microsoft YaHei UI。
 14. 休息结束音乐（2026-11-09，同日修订）：取消 `music_lead_seconds`；休息倒计时归零后开始播放，时长由 `music_play_seconds`（30–120，默认 60）控制，面板拖动条可改；播放期间窗口保持打开、标题改为“生产队的驴都不敢这么歇！”；动键鼠即淡出并关闭；音乐关闭时倒计时结束即关闭窗口。内置音乐为程序合成的 2 秒片段（24 kHz 单声道 PCM，内嵌 exe，复刻参考提示音前 2 秒的 1049 Hz 铃声），循环播放且每遍后静音 3 秒（2 秒音乐、3 秒停顿）；用户可选 PCM WAV（≤5 MB）。播放由 `PlaySound` 改为 `waveOut` 流式播放以支持淡出，仍延迟加载 winmm；不提供单条音量。
-15. 内置休息结束音乐替换（2026-11-17）：默认音乐由程序合成的 2 秒铃声改为约 15.6 秒的驴叫声片段（16 kHz 单声道 16-bit PCM，内嵌 exe），仍循环播放且每遍后静音 3 秒；删除 `tools/make_music.py`，核心 exe 约 760 KB。
+15. 内置休息结束音乐替换（2026-11-17）：默认音乐由程序合成的 2 秒铃声改为约 15.6 秒的驴叫声片段（24 kHz 单声道 16-bit PCM，内嵌 exe），仍循环播放且每遍后静音 3 秒；删除 `tools/make_music.py`，核心 exe 约 0.98 MB。
 
 ## 16. 待确认事项
 
