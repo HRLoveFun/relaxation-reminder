@@ -28,7 +28,7 @@ https://raw.githubusercontent.com/HRLoveFun/relaxation-reminder/main/INSTALL.md
 
 ### 手动安装（备用）
 
-1. 从 [Releases](https://github.com/HRLoveFun/relaxation-reminder/releases/latest) 下载 `RelaxationReminder-Setup-0.11.25.4.exe`。
+1. 从 [Releases](https://github.com/HRLoveFun/relaxation-reminder/releases/latest) 下载 `RelaxationReminder-Setup-0.11.25.5.exe`。
 2. 双击安装。当前用户安装，无需管理员权限，默认目录 `%LOCALAPPDATA%\Programs\RelaxationReminder`；SmartScreen 提示时选“更多信息”→“仍要运行”。
 3. 安装后自动启动并常驻托盘。想立刻看效果：右键托盘图标 → **立即休息**。
 
@@ -37,7 +37,7 @@ https://raw.githubusercontent.com/HRLoveFun/relaxation-reminder/main/INSTALL.md
 #### 命令行静默安装
 
 ```powershell
-Start-Process -FilePath '.\RelaxationReminder-Setup-0.11.25.4.exe' `
+Start-Process -FilePath '.\RelaxationReminder-Setup-0.11.25.5.exe' `
   -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait
 Start-Process "$env:LOCALAPPDATA\Programs\RelaxationReminder\RelaxationReminder.exe"
 ```
@@ -64,12 +64,13 @@ Windows 10 1809 及以上，64 位。无需管理员权限，无需 .NET / Visua
 - **延后一次**：每次提醒可延后一次，重弹后回到初始尺寸且按钮置灰。
 - **手动关闭**：二次确认，并提示下次提醒时间。
 - **暂停计时**：托盘可随时暂停/恢复全部计时，窗口保持不变。
+- **锁屏冻结**：电脑锁屏时暂停等待间隔、延后等待与尚未进入休息的窗口扩大，解锁后从冻结处继续；休息倒计时、音乐与休息状态下的窗口扩大不受影响。
 - **休息结束音乐**：休息倒计时结束开始播放音乐（默认 60 秒，可在面板调 30–120 秒），期间窗口保持打开；动键鼠即淡出。可换成自己的 WAV。
 - **托盘常驻**：设置、立即休息、暂停计时、形象、音乐、开机自启、退出。
 - **开机自启**：默认开启，可关闭；每次启动按当前 exe 路径修复自启项。
 - **自定义形象**：PNG/JPEG/BMP/GIF（含动画），加载失败回退默认方块。
 - **即时设置**：时间参数用拖动条，没有“保存/取消”。
-- **异常恢复**：唤醒后若已超时立即提醒一次；睡眠不计入休息时间。
+- **异常恢复**：唤醒后若已超时立即提醒一次；睡眠不计入休息时间；锁屏期间暂停非休息计时，解锁后继续。
 - **单实例**：重复启动会唤起已运行实例的设置面板。
 
 ## 它是怎么工作的
@@ -81,7 +82,7 @@ Windows 10 1809 及以上，64 位。无需管理员权限，无需 .NET / Visua
 5. 倒计时结束开始播放音乐（默认 60 秒），窗口保持打开，标题变为“生产队的驴都不敢这么歇！”；动键鼠后音乐淡出、窗口关闭。
 6. 音乐播放完或手动关闭后窗口消失，重新等待 30 分钟。
 
-> 延后会让下一次提醒整体顺延。
+> 延后会让下一次提醒整体顺延。锁屏期间等待间隔、延后等待与尚未进入休息的窗口扩大暂停，解锁后继续；锁屏时长不计入这些计时。
 
 ## 使用说明
 
@@ -170,7 +171,7 @@ build.bat test
 build.bat installer
 ```
 
-产物：`build\RelaxationReminder.exe`（单文件、静态 CRT）与 `dist\RelaxationReminder-Setup-0.11.25.4.exe`。也可用 CMake：
+产物：`build\RelaxationReminder.exe`（单文件、静态 CRT）与 `dist\RelaxationReminder-Setup-0.11.25.5.exe`。也可用 CMake：
 
 ```bat
 cmake -S . -B build-cmake -G "Visual Studio 16 2019" -A x64

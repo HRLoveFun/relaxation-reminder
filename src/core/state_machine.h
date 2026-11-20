@@ -56,6 +56,15 @@ public:
     void OnSuspend(uint64_t now_ms);
     void OnResume(uint64_t now_ms);
 
+    // Workstation lock freezes non-rest timing only: the interval wait, the
+    // snooze wait and the SHOW_ACTIVE expansion stop advancing until unlock.
+    // Rest countdown, music playback and expansion in rest states keep
+    // running, so locking the screen while the user is away still counts as
+    // rest.
+    void OnLock(uint64_t now_ms);
+    void OnUnlock(uint64_t now_ms);
+    bool screen_locked() const { return screen_locked_; }
+
     // Test/debug hook: show immediately without waiting for the interval.
     void ForceShow(uint64_t now_ms);
 
@@ -91,6 +100,7 @@ private:
     bool started_ = false;
     bool suspended_ = false;
     bool timing_paused_ = false;
+    bool screen_locked_ = false;
     bool snooze_used_ = false;
     bool music_fading_ = false;
 

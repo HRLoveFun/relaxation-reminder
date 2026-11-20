@@ -58,7 +58,7 @@
 
 - 语言/工具链：**C++17、MSVC v142（VS2019）、Windows SDK 10.0.19041、x64**。
 - 链接：`/MT` 静态 CRT，避免 VC++ 运行时分发；`/O2 /Gy /OPT:REF /OPT:ICF`，关闭 RTTI，异常仅在必要处使用。
-- 依赖：仅系统库 `user32.lib gdi32.lib gdiplus.lib comdlg32.lib comctl32.lib uxtheme.lib shell32.lib advapi32.lib shcore.lib winmm.lib delayimp.lib`，不引入任何第三方库。GDI+（`gdiplus.dll`）与 winmm 均为 Windows 自带组件；winmm 通过 `/DELAYLOAD` 延迟到首次播放音乐时加载。
+- 依赖：仅系统库 `user32.lib gdi32.lib gdiplus.lib comdlg32.lib comctl32.lib uxtheme.lib shell32.lib advapi32.lib shcore.lib dwmapi.lib wtsapi32.lib winmm.lib delayimp.lib`，不引入任何第三方库。GDI+（`gdiplus.dll`）与 winmm 均为 Windows 自带组件；winmm 通过 `/DELAYLOAD` 延迟到首次播放音乐时加载。
 - 界面：原生 Win32 窗口 + 自绘圆角 `BUTTON` 控件 + GDI 绘制占位方块 + GDI+ 解码用户形象，不引入 UI 框架。
 - 体积预算：exe ≤1 MB（硬指标 1 MB）；资源为图标、版本信息与约 729 KB 内置音乐。
 
@@ -88,8 +88,8 @@ src/
 ## 4. 总体架构
 
 - **单进程、单线程**：所有窗口、计时器、托盘逻辑都在 UI 线程，不创建后台线程。
-- **后台窗口**：创建一个隐藏的顶层窗口（不可见、无任务栏按钮）承载 `WM_TIMER` 与 `WM_POWERBROADCAST`；不使用 message-only window，因为后者收不到广播消息。
-- **启动序列**：单实例互斥体 → 读取配置并校验 → 创建托盘与消息窗口 → 自启开启时按当前 exe 路径重写自启项（用户关闭过则不写）→ 进入 `WAIT_INTERVAL`。
+- **后台窗口**：创建一个隐藏的顶层窗口（不可见、无任务栏按钮）承载 `WM_TIMER`、`WM_POWERBROADCAST` 与 `WM_WTSSESSION_CHANGE`（锁屏/解锁）；不使用 message-only window，因为后者收不到广播消息。
+- **启动序列**：单实例互斥体 → 读取配置并校验 → 创建托盘与消息窗口并注册会话锁屏通知 → 自启开启时按当前 exe 路径重写自启项（用户关闭过则不写）→ 进入 `WAIT_INTERVAL`。
 - **退出**：仅通过托盘菜单“退出”，退出前保存配置、移除计时器。
 - **无控制台、无服务、无驱动**；安装包只负责部署，核心程序可独立运行；以当前用户权限运行（`asInvoker`）。
 
@@ -118,6 +118,7 @@ src/
 补充约定：
 
 - 托盘“暂停计时”设置全局冻结标记：`Tick` 只更新时钟基准、不推进任何倒计时与扩大进度，状态保持不变；关闭“暂停计时”后从冻结处继续。暂停期间手动关闭/延后仍可操作。
+- 锁屏冻结标记（`screen_locked`）由 `OnLock` / `OnUnlock` 切换：`Tick` 在 `WAIT_INTERVAL` / `SNOOZE_WAIT` 不扣减剩余时间，在 `SHOW_ACTIVE` 不推进扩大进度；`REST_RUNNING` 的休息倒计时、`MUSIC_PLAYING` 的音乐倒计时以及休息状态下的窗口扩大保持正常推进，`REST_PAUSED` 仍按原规则保持暂停。锁屏事件到达时把时钟基准重置到事件时刻，锁屏期间的墙钟时间不计入等待间隔、延后等待与 `SHOW_ACTIVE` 扩大。
 - “延后”“关闭”的二次确认框由同一 UI 线程的 `MessageBox` 弹出，其模态消息循环仍会投递 `WM_TIMER`。弹出前先置全局冻结标记，返回后恢复原值（若用户此前手动暂停则保持暂停），因此确认框打开期间休息倒计时与窗口扩大都不走表。
 - 休息倒计时归零与手动关闭都算“最终消失”，均从该时刻起算 `reminder_interval_minutes`。
 - 延后按钮在重新弹出的窗口中保留但置灰（`EnableWindow(FALSE)`）。
@@ -133,7 +134,7 @@ src/
 - `WM_POWERBROADCAST`：
   - `PBT_APMSUSPEND`：冻结休息倒计时（记录 `rest_remaining` 不再扣减）与扩大进度，窗口状态保持不变；睡眠时间不计入休息时长和扩大时长。
   - `PBT_APMRESUMEAUTOMATIC`：立即执行一次 tick 并重新做空闲判定。若 `WAIT_INTERVAL` / `SNOOZE_WAIT` 已超时，只弹出一次提醒，不补发；若窗口仍在显示且键鼠仍空闲满 `idle_threshold_seconds`，则进入/继续休息倒计时。
-- 锁屏不做特殊处理：锁屏期间键鼠无输入，空闲判定自然会进入休息；解锁后若窗口仍在且用户操作，转入 `REST_PAUSED`。
+- 锁屏：注册 `WTSRegisterSessionNotification(NOTIFY_FOR_THIS_SESSION)`，在隐藏窗口的 `WM_WTSSESSION_CHANGE` 中处理 `WTS_SESSION_LOCK` / `WTS_SESSION_UNLOCK` 并切换锁屏冻结标记。锁屏期间 `WAIT_INTERVAL`、`SNOOZE_WAIT` 的剩余时间与 `SHOW_ACTIVE` 的扩大进度不推进，解锁后从冻结处继续，锁屏墙钟时间不计入等待与扩大计时；键鼠空闲判定照常进行，锁屏满 `idle_threshold_seconds` 仍会进入休息，`REST_RUNNING` 的休息倒计时、`MUSIC_PLAYING` 的音乐倒计时与休息状态下的窗口扩大不受影响，`REST_PAUSED` 仍按原规则保持暂停。程序启动时用 `WTSQuerySessionInformation(WTSSessionInfoEx)` 读取当前会话锁定状态，避免在锁屏状态下启动时漏掉通知。
 
 ### 6.2 键鼠空闲检测
 
@@ -153,6 +154,7 @@ src/
 - 扩大进度只随显示时间推进，**不受键鼠空闲、进入 `REST_RUNNING` 或 `REST_PAUSED` 影响**；达到上限后尺寸保持。只有新的提醒弹出（含延后重弹）才重置为 `A0`。
 - 托盘“暂停计时”与“延后/关闭”的二次确认框打开期间，扩大进度冻结；恢复后从冻结处继续。
 - 睡眠/休眠期间扩大计时冻结（与休息倒计时一致），唤醒后从冻结处继续。
+- 锁屏期间 `SHOW_ACTIVE` 的扩大进度冻结，解锁后从冻结处继续；锁屏时已进入休息状态的扩大不受影响。
 - 窗口以初始光标位置为中心向外扩大；扩大过程中中心点保持不动，并钳制在工作区内。
 
 ### 6.4 窗口定位与焦点
@@ -292,7 +294,7 @@ music_file=
 
 - 发布形态：默认由 AI 智能体按 README 提示词自动安装；手动备用为单一安装包 `RelaxationReminder-Setup-<version>.exe`（Inno Setup 6 编译，每用户安装，无需管理员权限），内含单个核心程序 `RelaxationReminder.exe`（无 DLL、无外部资源目录）。不提供便携版，避免从压缩包临时目录运行、自启路径失效和升级残留。
 - 安装目录：`%LOCALAPPDATA%\Programs\RelaxationReminder`；开始菜单快捷方式必装，桌面快捷方式可选（默认不勾选）。
-- 版本资源：exe 写入 `FileVersion 0.11.25.4`、`ProductVersion 0.11.25.4` 和应用图标（与默认形象一致的琥珀色圆角方块）；托盘与任务栏使用同一图标。
+- 版本资源：exe 写入 `FileVersion 0.11.25.5`、`ProductVersion 0.11.25.5` 和应用图标（与默认形象一致的琥珀色圆角方块）；托盘与任务栏使用同一图标。
 - 升级：同 AppId 覆盖安装；安装前向已运行实例的隐藏窗口发送 `WM_CLOSE`，等待其退出后替换文件。用户配置与自定义形象不受影响。
 - 卸载：删除程序文件、快捷方式、卸载项与自启注册表值；默认保留 `%APPDATA%\RelaxationReminder` 下的配置和自定义形象，重装后继续生效。
 - 签名：不做代码签名（2026-11-06 决定）。首次运行安装包可能出现 SmartScreen“Windows 已保护你的电脑”，需用户点击“更多信息 → 仍要运行”；README 提供说明。未签名也可能触发少数杀软误报。
@@ -375,6 +377,7 @@ music_file=
 | T9 | 重弹后休息/关闭 | 规则同首次；关闭确认后进入下一轮等待 |
 | T10 | 手动关闭 | 二次确认后消失并重新计时；取消则保持显示 |
 | T11 | 休眠唤醒跨过间隔 | 唤醒后只提醒一次，不补发 |
+| T11a | 锁屏/解锁 | 锁屏期间等待间隔、延后等待与 `SHOW_ACTIVE` 的扩大冻结；解锁后从冻结处继续；休息倒计时、音乐播放与休息状态下的扩大不受影响 |
 | T12 | 多显示器/不同 DPI | 窗口位于光标显示器，尺寸与清晰度正常 |
 | T13 | 设置非法值 | 拒绝保存并提示；合法值持久化，下一周期生效 |
 | T13a | 设置面板入口/重置 | 提醒窗口左下角“设置”与托盘菜单均可打开；拖动条按档位即时生效且右侧数值无重影；点“恢复默认值”即恢复 30/5/5、芬宝 并立即保存生效，面板保持打开，空闲阈值与开机自启不变 |

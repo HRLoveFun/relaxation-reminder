@@ -333,6 +333,132 @@ void PauseFreezesRestAndExpansion() {
     CHECK(machine.state() == rr::State::MusicPlaying);
 }
 
+void LockFreezesIntervalWait() {
+    rr::StateMachine machine = MakeMachine();
+    machine.Tick(10 * kMinute, 0);
+    CHECK(machine.interval_remaining_seconds() == 20 * 60);
+
+    machine.OnLock(10 * kMinute);
+    CHECK(machine.screen_locked());
+    rr::TickResult result = machine.Tick(25 * kMinute, 0);
+    CHECK(!result.show_reminder);
+    CHECK(machine.interval_remaining_seconds() == 20 * 60);
+
+    machine.OnUnlock(25 * kMinute);
+    CHECK(!machine.screen_locked());
+    result = machine.Tick(25 * kMinute + 20 * kMinute - 1, 0);
+    CHECK(!result.show_reminder);
+    result = machine.Tick(45 * kMinute, 0);
+    CHECK(result.show_reminder);
+    CHECK(machine.state() == rr::State::ShowActive);
+}
+
+void LockFreezesSnoozeWait() {
+    rr::StateMachine machine = MakeMachine();
+    machine.Tick(30 * kMinute, 0);
+    CHECK(machine.TrySnooze(30 * kMinute));
+    CHECK(machine.state() == rr::State::SnoozeWait);
+
+    machine.OnLock(31 * kMinute);
+    rr::TickResult result = machine.Tick(36 * kMinute, 0);
+    CHECK(!result.show_reminder);
+    CHECK(machine.state() == rr::State::SnoozeWait);
+    CHECK(machine.interval_remaining_seconds() == 5 * 60);
+
+    machine.OnUnlock(36 * kMinute);
+    result = machine.Tick(41 * kMinute, 0);
+    CHECK(result.show_reminder);
+    CHECK(machine.state() == rr::State::ShowActive);
+}
+
+void LockFreezesShowActiveExpansion() {
+    rr::StateMachine machine = MakeMachine();
+    machine.Tick(30 * kMinute, 0);
+    machine.Tick(30 * kMinute + 5 * kSecond, 5000);
+    CHECK(machine.state() == rr::State::ShowActive);
+    CHECK(machine.expansion_elapsed_ms() == 5 * kSecond);
+
+    machine.OnLock(30 * kMinute + 5 * kSecond);
+    rr::TickResult result = machine.Tick(30 * kMinute + 15 * kSecond, 5000);
+    CHECK(machine.state() == rr::State::ShowActive);
+    CHECK(machine.expansion_elapsed_ms() == 5 * kSecond);
+
+    machine.OnUnlock(30 * kMinute + 15 * kSecond);
+    result = machine.Tick(30 * kMinute + 16 * kSecond, 5000);
+    CHECK(machine.state() == rr::State::ShowActive);
+    CHECK(machine.expansion_elapsed_ms() == 6 * kSecond);
+}
+
+void LockStillStartsRestWhenIdle() {
+    rr::StateMachine machine = MakeMachine();
+    machine.Tick(30 * kMinute, 0);
+    machine.OnLock(30 * kMinute);
+
+    rr::TickResult result = machine.Tick(30 * kMinute + 10 * kSecond, 10000);
+    CHECK(result.entered_rest);
+    CHECK(machine.state() == rr::State::RestRunning);
+    CHECK(machine.rest_remaining_seconds() == 300);
+
+    // Rest is rest timing: it keeps counting down while the screen is locked.
+    result = machine.Tick(30 * kMinute + 60 * kSecond, 10000);
+    CHECK(machine.state() == rr::State::RestRunning);
+    CHECK(machine.rest_remaining_seconds() == 250);
+}
+
+void LockFreezesIntervalAfterRestEnds() {
+    rr::StateMachine machine = MachineInRest(60, false);
+    const uint64_t now = 30 * kMinute;
+    machine.OnLock(now);
+
+    rr::TickResult result = machine.Tick(now + 300 * kSecond, 10000);
+    CHECK(result.final_dismiss);
+    CHECK(machine.state() == rr::State::WaitInterval);
+    CHECK(machine.interval_remaining_seconds() == 30 * 60);
+
+    result = machine.Tick(now + 310 * kSecond, 10000);
+    CHECK(machine.interval_remaining_seconds() == 30 * 60);
+
+    machine.OnUnlock(now + 310 * kSecond);
+    result = machine.Tick(now + 310 * kSecond + 30 * kMinute, 10000);
+    CHECK(result.show_reminder);
+}
+
+void LockEventDiscardsUntrackedTime() {
+    rr::StateMachine machine = MakeMachine();
+    machine.Tick(10 * kMinute, 0);
+    CHECK(machine.interval_remaining_seconds() == 20 * 60);
+
+    // Ten minutes elapse before the lock notification arrives; that time must
+    // not count, even though no tick observed it.
+    machine.OnLock(20 * kMinute);
+    machine.OnUnlock(25 * kMinute);
+    rr::TickResult result = machine.Tick(25 * kMinute, 0);
+    CHECK(!result.show_reminder);
+    CHECK(machine.interval_remaining_seconds() == 20 * 60);
+
+    result = machine.Tick(45 * kMinute, 0);
+    CHECK(result.show_reminder);
+}
+
+void LockDoesNotFreezeRestOrMusic() {
+    rr::StateMachine machine = MachineInRest(60, true);
+    const uint64_t now = 30 * kMinute;
+    machine.OnLock(now);
+
+    rr::TickResult result = machine.Tick(now + 100 * kSecond, 10000);
+    CHECK(machine.state() == rr::State::RestRunning);
+    CHECK(machine.rest_remaining_seconds() == 200);
+
+    result = machine.Tick(now + 300 * kSecond, 10000);
+    CHECK(result.music_start);
+    CHECK(machine.state() == rr::State::MusicPlaying);
+    CHECK(machine.music_remaining_seconds() == 60);
+
+    result = machine.Tick(now + 330 * kSecond, 10000);
+    CHECK(machine.state() == rr::State::MusicPlaying);
+    CHECK(machine.music_remaining_seconds() == 30);
+}
+
 void SleepCountsForIntervalOnly() {
     rr::StateMachine interval_machine = MakeMachine();
     interval_machine.Tick(1 * kMinute, 0);
@@ -489,6 +615,13 @@ int main() {
     SnoozeOnceAndResetsNextCycle();
     PauseFreezesAllCountdowns();
     PauseFreezesRestAndExpansion();
+    LockFreezesIntervalWait();
+    LockFreezesSnoozeWait();
+    LockFreezesShowActiveExpansion();
+    LockStillStartsRestWhenIdle();
+    LockFreezesIntervalAfterRestEnds();
+    LockEventDiscardsUntrackedTime();
+    LockDoesNotFreezeRestOrMusic();
     SleepCountsForIntervalOnly();
     CloseReminderEndsCycle();
     RestEndsIntoMusicThenDismisses();

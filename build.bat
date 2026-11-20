@@ -42,7 +42,7 @@ cl /nologo /std:c++17 /permissive- /utf-8 /O2 /MT /W4 /EHsc /Isrc /experimental:
     src\win32\rounded_ui.cpp ^
     src\core\config.cpp src\core\state_machine.cpp src\core\growth.cpp build\app.res ^
     /link /SUBSYSTEM:WINDOWS /MACHINE:X64 /DELAYLOAD:winmm.dll ^
-    user32.lib gdi32.lib gdiplus.lib comdlg32.lib comctl32.lib uxtheme.lib shell32.lib advapi32.lib shcore.lib dwmapi.lib winmm.lib delayimp.lib
+    user32.lib gdi32.lib gdiplus.lib comdlg32.lib comctl32.lib uxtheme.lib shell32.lib advapi32.lib shcore.lib dwmapi.lib wtsapi32.lib winmm.lib delayimp.lib
 if errorlevel 1 exit /b 1
 
 echo.

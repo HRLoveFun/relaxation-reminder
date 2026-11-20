@@ -65,25 +65,36 @@ TickResult StateMachine::Tick(uint64_t now_ms, uint32_t idle_ms) {
 
     switch (state_) {
         case State::WaitInterval:
-            if (delta >= remaining_ms_) {
-                EnterShow(now_ms, false);
-                result.show_reminder = true;
-            } else {
-                remaining_ms_ -= delta;
+            // Locked time does not count toward the next reminder.
+            if (!screen_locked_) {
+                if (delta >= remaining_ms_) {
+                    EnterShow(now_ms, false);
+                    result.show_reminder = true;
+                } else {
+                    remaining_ms_ -= delta;
+                }
             }
             break;
 
         case State::SnoozeWait:
-            if (delta >= remaining_ms_) {
-                EnterShow(now_ms, true);
-                result.show_reminder = true;
-            } else {
-                remaining_ms_ -= delta;
+            // A snoozed reminder must not pop while the workstation is locked.
+            if (!screen_locked_) {
+                if (delta >= remaining_ms_) {
+                    EnterShow(now_ms, true);
+                    result.show_reminder = true;
+                } else {
+                    remaining_ms_ -= delta;
+                }
             }
             break;
 
         case State::ShowActive:
-            expansion_elapsed_ms_ += delta;
+            // Freeze the expansion while locked; the rest judgment itself is
+            // not timing, so a locked workstation still enters rest after the
+            // idle threshold.
+            if (!screen_locked_) {
+                expansion_elapsed_ms_ += delta;
+            }
             if (idle_ms >= idle_ms_) {
                 state_ = State::RestRunning;
                 rest_remaining_ms_ = rest_ms_;
@@ -187,6 +198,20 @@ void StateMachine::OnResume(uint64_t now_ms) {
         last_tick_ms_ = now_ms;
     }
     suspended_ = false;
+}
+
+void StateMachine::OnLock(uint64_t now_ms) {
+    // Do not count the time between the last tick and the lock event, and
+    // freeze non-rest timing from here on.
+    last_tick_ms_ = now_ms;
+    screen_locked_ = true;
+}
+
+void StateMachine::OnUnlock(uint64_t now_ms) {
+    // Locked wall time never counts toward any timer; resume from the frozen
+    // remaining time.
+    last_tick_ms_ = now_ms;
+    screen_locked_ = false;
 }
 
 void StateMachine::ForceShow(uint64_t now_ms) {

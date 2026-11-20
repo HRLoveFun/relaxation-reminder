@@ -4,6 +4,7 @@
 #include <commdlg.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#include <wtsapi32.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -576,6 +577,30 @@ uint32_t IdleMilliseconds() {
     return now - info.dwTime;
 }
 
+// Ask the terminal services API instead of inferring from input events, so a
+// process that starts while the session is already locked still freezes its
+// non-rest timers.
+bool IsSessionLocked() {
+    LPWSTR buffer = nullptr;
+    DWORD bytes = 0;
+    if (!WTSQuerySessionInformationW(WTS_CURRENT_SERVER_HANDLE,
+                                     WTS_CURRENT_SESSION, WTSSessionInfoEx,
+                                     &buffer, &bytes)) {
+        return false;
+    }
+
+    bool locked = false;
+    if (buffer != nullptr && bytes >= sizeof(WTSINFOEXW)) {
+        const auto* info = reinterpret_cast<const WTSINFOEXW*>(buffer);
+        if (info->Level == 1 &&
+            info->Data.WTSInfoExLevel1.SessionFlags == WTS_SESSIONSTATE_LOCK) {
+            locked = true;
+        }
+    }
+    WTSFreeMemory(buffer);
+    return locked;
+}
+
 std::wstring FormatClock(uint32_t seconds) {
     wchar_t buffer[16] = {};
     swprintf_s(buffer, L"%02u:%02u", seconds / 60, seconds % 60);
@@ -977,6 +1002,20 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam,
             }
             break;
 
+        case WM_WTSSESSION_CHANGE:
+            // Locking the workstation freezes the interval, snooze and
+            // expansion timers; rest and music keep running. Unlocking resumes
+            // them from the frozen values.
+            if (wparam == WTS_SESSION_LOCK) {
+                g_machine.OnLock(GetTickCount64());
+                UpdateTrayTip();
+            } else if (wparam == WTS_SESSION_UNLOCK) {
+                g_machine.OnUnlock(GetTickCount64());
+                UpdateTrayTip();
+                Tick();
+            }
+            return 0;
+
         case WM_POWERBROADCAST:
             if (wparam == PBT_APMSUSPEND) {
                 rr::StopRestMusic();
@@ -994,6 +1033,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam,
 
         case WM_DESTROY:
             KillTimer(hwnd, kTickTimer);
+            WTSUnRegisterSessionNotification(hwnd);
             rr::StopRestMusic();
             RemoveTrayIcon();
             PostQuitMessage(0);
@@ -1076,6 +1116,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         return 1;
     }
 
+    // Session lock/unlock notifications arrive as WM_WTSSESSION_CHANGE on the
+    // hidden window. Failure is harmless: the app simply never freezes.
+    WTSRegisterSessionNotification(g_hwnd, NOTIFY_FOR_THIS_SESSION);
+
     g_reminder = std::make_unique<rr::ReminderWindow>();
     if (!g_reminder->Create(instance, g_hwnd)) {
         g_reminder.reset();
@@ -1108,6 +1152,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
                         g_config.idle_threshold_seconds,
                         g_config.music_play_seconds, g_config.music_enabled);
     g_machine.Start(GetTickCount64());
+    if (IsSessionLocked()) {
+        g_machine.OnLock(GetTickCount64());
+    }
     UpdateTrayTip();
 
     bool reminder_forced = false;

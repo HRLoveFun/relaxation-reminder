@@ -59,6 +59,7 @@ target_link_libraries(RelaxationReminder PRIVATE
     advapi32
     shcore
     dwmapi
+    wtsapi32
     winmm
     delayimp
 )
