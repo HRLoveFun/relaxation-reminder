@@ -87,11 +87,15 @@
 
 `Get-FileHash` 不可用时可用 `certutil -hashfile <文件> SHA256` 代替。
 
+### 在程序中检查更新
+
+托盘右键 → **检查更新**。程序会在后台查询最新 Release；发现新版本时把一段智能体更新提示词复制到剪贴板，并提示用户粘贴给能执行本地命令的智能体。该操作只读取 GitHub Releases，不上传信息，也不会自动下载或安装。检查失败时，可重新使用本页的智能体说明手动更新。
+
 ---
 
 ## 手动安装（备用）
 
-1. 从 [Releases](https://github.com/HRLoveFun/relaxation-reminder/releases/latest) 下载 `RelaxationReminder-Setup-0.11.25.5.exe`。
+1. 从 [Releases](https://github.com/HRLoveFun/relaxation-reminder/releases/latest) 下载 `RelaxationReminder-Setup-0.11.25.6.exe`。
 2. 双击安装。当前用户安装，无需管理员权限，默认目录 `%LOCALAPPDATA%\Programs\RelaxationReminder`；SmartScreen 提示时选“更多信息”→“仍要运行”。
 3. 安装后自动启动并常驻托盘。想立刻看效果：右键托盘图标 → **立即休息**。
 
@@ -100,7 +104,7 @@
 ### 命令行静默安装
 
 ```powershell
-Start-Process -FilePath '.\RelaxationReminder-Setup-0.11.25.5.exe' `
+Start-Process -FilePath '.\RelaxationReminder-Setup-0.11.25.6.exe' `
   -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait
 Start-Process "$env:LOCALAPPDATA\Programs\RelaxationReminder\RelaxationReminder.exe"
 ```

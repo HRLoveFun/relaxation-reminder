@@ -11,6 +11,7 @@
 #include <cstring>
 #include <cwchar>
 #include <memory>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -20,6 +21,7 @@
 #include "win32/rest_sound.h"
 #include "win32/settings_window.h"
 #include "win32/splash_window.h"
+#include "win32/update_check.h"
 
 namespace {
 
@@ -32,6 +34,7 @@ constexpr wchar_t kRunValue[] = L"RelaxationReminder";
 
 constexpr UINT kTrayMessage = WM_APP + 1;
 constexpr UINT kShowSettingsMessage = WM_APP + 2;
+constexpr UINT kUpdateResultMessage = WM_APP + 3;
 constexpr UINT_PTR kTickTimer = 1;
 constexpr UINT kTickIntervalMs = 50;
 constexpr UINT kTrayIconId = 1;
@@ -46,6 +49,7 @@ constexpr UINT kMenuPauseTiming = 1007;
 constexpr UINT kMenuChooseSound = 1008;
 constexpr UINT kMenuResetSound = 1009;
 constexpr UINT kMenuToggleMusic = 1010;
+constexpr UINT kMenuCheckUpdate = 1011;
 
 HWND g_hwnd = nullptr;
 NOTIFYICONDATAW g_tray{};
@@ -58,6 +62,7 @@ std::unique_ptr<rr::SettingsWindow> g_settings;
 std::unique_ptr<rr::SplashWindow> g_splash;
 std::wstring g_last_tip;
 uint64_t g_last_tip_update = 0;
+LONG g_update_checking = 0;
 
 std::wstring AppDataDir() {
     wchar_t buffer[MAX_PATH] = {};
@@ -786,6 +791,78 @@ void ShowSettingsPanel() {
     g_settings->Show(g_config, ApplySettings);
 }
 
+void ShowUpdateResult(const rr::UpdateInfo& info) {
+    HWND owner =
+        (g_reminder && g_reminder->visible()) ? g_reminder->hwnd() : g_hwnd;
+
+    if (info.status == rr::UpdateStatus::NewVersion) {
+        const std::wstring prompt =
+            rr::BuildUpdatePrompt(info.current_version, info.latest_version);
+        const bool copied = rr::CopyTextToClipboard(owner, prompt);
+
+        std::wstring text = L"发现新版本 " + info.latest_version + L"（当前 " +
+                            info.current_version + L"）。\n\n";
+        if (copied) {
+            text += L"更新提示词已复制到剪贴板。请把它粘贴给 Claude Code、"
+                    L"Codex CLI 等能执行本地命令的智能体，由智能体完成更新。";
+        } else {
+            text += L"无法写入剪贴板。请手动复制下面的提示词，交给能执行本地"
+                    L"命令的智能体：\n\n" +
+                    prompt;
+        }
+        MessageBoxW(owner, text.c_str(), L"发现新版本",
+                    MB_OK | MB_ICONINFORMATION | MB_TOPMOST);
+        return;
+    }
+
+    if (info.status == rr::UpdateStatus::UpToDate) {
+        const std::wstring text =
+            L"当前已是最新版本（" + info.current_version + L"）。";
+        MessageBoxW(owner, text.c_str(), L"检查更新",
+                    MB_OK | MB_ICONINFORMATION | MB_TOPMOST);
+        return;
+    }
+
+    MessageBoxW(owner,
+                L"检查更新失败，请确认网络连接后重试。\n\n也可以手动查看：\n"
+                L"https://github.com/HRLoveFun/relaxation-reminder/releases",
+                L"检查更新", MB_OK | MB_ICONWARNING | MB_TOPMOST);
+}
+
+DWORD WINAPI UpdateCheckThread(LPVOID) {
+    auto* info = new (std::nothrow) rr::UpdateInfo;
+    if (info == nullptr) {
+        InterlockedExchange(&g_update_checking, 0);
+        return 0;
+    }
+
+    *info = rr::CheckForUpdate();
+    if (!PostMessageW(g_hwnd, kUpdateResultMessage, 0,
+                      reinterpret_cast<LPARAM>(info))) {
+        delete info;
+        InterlockedExchange(&g_update_checking, 0);
+    }
+    return 0;
+}
+
+void StartUpdateCheck() {
+    // A check can take several seconds; run it off the UI thread so the 50 ms
+    // timer stays responsive. A second click while it runs is ignored.
+    if (InterlockedCompareExchange(&g_update_checking, 1, 0) != 0) {
+        return;
+    }
+
+    HANDLE thread =
+        CreateThread(nullptr, 0, UpdateCheckThread, nullptr, 0, nullptr);
+    if (thread == nullptr) {
+        InterlockedExchange(&g_update_checking, 0);
+        MessageBoxW(g_hwnd, L"无法启动更新检查。", L"检查更新",
+                    MB_OK | MB_ICONWARNING | MB_TOPMOST);
+        return;
+    }
+    CloseHandle(thread);
+}
+
 void ShowTrayMenu() {
     HMENU menu = CreatePopupMenu();
     if (!menu) {
@@ -814,6 +891,12 @@ void ShowTrayMenu() {
     AppendMenuW(menu,
                 MF_STRING | (IsAutostartEnabled() ? MF_CHECKED : MF_UNCHECKED),
                 kMenuAutostart, L"开机自启(&A)");
+    const bool checking =
+        InterlockedCompareExchange(&g_update_checking, 0, 0) != 0;
+    AppendMenuW(menu,
+                MF_STRING | (checking ? MF_GRAYED : MF_ENABLED),
+                kMenuCheckUpdate,
+                checking ? L"检查更新（进行中）…" : L"检查更新(&U)…");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, kMenuExit, L"退出(&X)");
 
@@ -914,6 +997,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam,
             ShowSettingsPanel();
             return 0;
 
+        case kUpdateResultMessage: {
+            std::unique_ptr<rr::UpdateInfo> info(
+                reinterpret_cast<rr::UpdateInfo*>(lparam));
+            InterlockedExchange(&g_update_checking, 0);
+            if (info) {
+                ShowUpdateResult(*info);
+            }
+            return 0;
+        }
+
         case rr::ReminderWindow::kSnoozeMessage:
             HandleSnooze();
             return 0;
@@ -994,6 +1087,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam,
                     UpdateTrayTip();
                     return 0;
                 }
+                case kMenuCheckUpdate:
+                    StartUpdateCheck();
+                    return 0;
                 case kMenuExit:
                     DestroyWindow(hwnd);
                     return 0;

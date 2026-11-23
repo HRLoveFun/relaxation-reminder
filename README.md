@@ -28,7 +28,7 @@ https://raw.githubusercontent.com/HRLoveFun/relaxation-reminder/main/INSTALL.md
 
 ### 手动安装（备用）
 
-1. 从 [Releases](https://github.com/HRLoveFun/relaxation-reminder/releases/latest) 下载 `RelaxationReminder-Setup-0.11.25.5.exe`。
+1. 从 [Releases](https://github.com/HRLoveFun/relaxation-reminder/releases/latest) 下载 `RelaxationReminder-Setup-0.11.25.6.exe`。
 2. 双击安装。当前用户安装，无需管理员权限，默认目录 `%LOCALAPPDATA%\Programs\RelaxationReminder`；SmartScreen 提示时选“更多信息”→“仍要运行”。
 3. 安装后自动启动并常驻托盘。想立刻看效果：右键托盘图标 → **立即休息**。
 
@@ -37,7 +37,7 @@ https://raw.githubusercontent.com/HRLoveFun/relaxation-reminder/main/INSTALL.md
 #### 命令行静默安装
 
 ```powershell
-Start-Process -FilePath '.\RelaxationReminder-Setup-0.11.25.5.exe' `
+Start-Process -FilePath '.\RelaxationReminder-Setup-0.11.25.6.exe' `
   -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait
 Start-Process "$env:LOCALAPPDATA\Programs\RelaxationReminder\RelaxationReminder.exe"
 ```
@@ -54,7 +54,7 @@ Windows 10 1809 及以上，64 位。无需管理员权限，无需 .NET / Visua
 
 - **提醒会“长大”**：窗口从鼠标位置出现，60 秒内指数扩大到工作区面积的 30%，持续占据视野。
 - **只有离开键鼠才算休息**：空闲满阈值（默认 10 秒）才开始休息倒计时；中途操作则暂停，再次离开后继续。
-- **不抢焦点、轻量常驻**：置顶但不抢输入焦点；exe 约 0.98 MB（含内置音乐），空闲内存约 17 MB，无第三方运行时与联网请求。
+- **不抢焦点、轻量常驻**：置顶但不抢输入焦点；exe 约 0.99 MB（含内置音乐），空闲内存约 17 MB，无第三方运行时；除手动“检查更新”外不发起联网请求。
 
 ## 功能
 
@@ -66,7 +66,8 @@ Windows 10 1809 及以上，64 位。无需管理员权限，无需 .NET / Visua
 - **暂停计时**：托盘可随时暂停/恢复全部计时，窗口保持不变。
 - **锁屏冻结**：电脑锁屏时暂停等待间隔、延后等待与尚未进入休息的窗口扩大，解锁后从冻结处继续；休息倒计时、音乐与休息状态下的窗口扩大不受影响。
 - **休息结束音乐**：休息倒计时结束开始播放音乐（默认 60 秒，可在面板调 30–120 秒），期间窗口保持打开；动键鼠即淡出。可换成自己的 WAV。
-- **托盘常驻**：设置、立即休息、暂停计时、形象、音乐、开机自启、退出。
+- **托盘常驻**：设置、立即休息、暂停计时、形象、音乐、开机自启、检查更新、退出。
+- **检查更新**：托盘右键 → **检查更新**，后台查询最新 Release；发现新版本时把一段智能体更新提示词复制到剪贴板，粘贴给 Claude Code、Codex CLI 等即可完成更新。
 - **开机自启**：默认开启，可关闭；每次启动按当前 exe 路径修复自启项。
 - **自定义形象**：PNG/JPEG/BMP/GIF（含动画），加载失败回退默认方块。
 - **即时设置**：时间参数用拖动条，没有“保存/取消”。
@@ -171,7 +172,7 @@ build.bat test
 build.bat installer
 ```
 
-产物：`build\RelaxationReminder.exe`（单文件、静态 CRT）与 `dist\RelaxationReminder-Setup-0.11.25.5.exe`。也可用 CMake：
+产物：`build\RelaxationReminder.exe`（单文件、静态 CRT）与 `dist\RelaxationReminder-Setup-0.11.25.6.exe`。也可用 CMake：
 
 ```bat
 cmake -S . -B build-cmake -G "Visual Studio 16 2019" -A x64
@@ -197,6 +198,9 @@ cmake --build build-cmake --config Release
 
 **可以让 AI 智能体帮我安装吗？**
 这就是默认方式：把[安装](#安装)里的简短提示词交给能执行本地命令的智能体即可。
+
+**怎么检查更新？**
+托盘右键 → **检查更新**。程序会在后台查询最新版本；有新版本时把一段更新提示词复制到剪贴板，粘贴给 Claude Code、Codex CLI 等智能体即可完成更新。检查更新是唯一的联网动作，不上传任何信息，也不会自动下载或安装。也可以使用[安装](#安装)里的提示词让智能体直接更新到最新版本。
 
 **支持 macOS / iOS 吗？**
 当前只提供 Windows 桌面端，macOS 与 iOS 在规划中。

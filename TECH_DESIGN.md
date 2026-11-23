@@ -58,7 +58,7 @@
 
 - 语言/工具链：**C++17、MSVC v142（VS2019）、Windows SDK 10.0.19041、x64**。
 - 链接：`/MT` 静态 CRT，避免 VC++ 运行时分发；`/O2 /Gy /OPT:REF /OPT:ICF`，关闭 RTTI，异常仅在必要处使用。
-- 依赖：仅系统库 `user32.lib gdi32.lib gdiplus.lib comdlg32.lib comctl32.lib uxtheme.lib shell32.lib advapi32.lib shcore.lib dwmapi.lib wtsapi32.lib winmm.lib delayimp.lib`，不引入任何第三方库。GDI+（`gdiplus.dll`）与 winmm 均为 Windows 自带组件；winmm 通过 `/DELAYLOAD` 延迟到首次播放音乐时加载。
+- 依赖：仅系统库 `user32.lib gdi32.lib gdiplus.lib comdlg32.lib comctl32.lib uxtheme.lib shell32.lib advapi32.lib shcore.lib dwmapi.lib wtsapi32.lib winmm.lib winhttp.lib version.lib delayimp.lib`，不引入任何第三方库。GDI+（`gdiplus.dll`）为 Windows 自带组件；winmm、winhttp 与 version 通过 `/DELAYLOAD` 延迟到首次使用时加载，待机不增加内存。
 - 界面：原生 Win32 窗口 + 自绘圆角 `BUTTON` 控件 + GDI 绘制占位方块 + GDI+ 解码用户形象，不引入 UI 框架。
 - 体积预算：exe ≤1 MB（硬指标 1 MB）；资源为图标、版本信息与约 729 KB 内置音乐。
 
@@ -70,12 +70,14 @@ src/
     state_machine.h/.cpp   提醒/休息/延后状态机
     config.h/.cpp          参数校验、默认值、序列化
     growth.h/.cpp          指数扩大曲线
+    version.h/.cpp         版本号解析与比较
   win32/
     main.cpp               WinMain、单实例、消息循环
     platform.cpp           时钟、空闲检测、显示器、DPI
     reminder_window.cpp    提醒窗口与绘制
     character_image.cpp    自定义图片/动图加载、校验、逐帧绘制
     rest_sound.cpp         休息结束音乐：WAV 校验、内置/用户音乐 waveOut 流式播放与淡出
+    update_check.cpp       检查更新：GitHub Release 查询、版本比较、剪贴板提示词
     settings_dialog.cpp    设置界面
     tray.cpp               托盘图标与菜单
     autostart.cpp          HKCU Run 读写
@@ -294,7 +296,7 @@ music_file=
 
 - 发布形态：默认由 AI 智能体按 README 提示词自动安装；手动备用为单一安装包 `RelaxationReminder-Setup-<version>.exe`（Inno Setup 6 编译，每用户安装，无需管理员权限），内含单个核心程序 `RelaxationReminder.exe`（无 DLL、无外部资源目录）。不提供便携版，避免从压缩包临时目录运行、自启路径失效和升级残留。
 - 安装目录：`%LOCALAPPDATA%\Programs\RelaxationReminder`；开始菜单快捷方式必装，桌面快捷方式可选（默认不勾选）。
-- 版本资源：exe 写入 `FileVersion 0.11.25.5`、`ProductVersion 0.11.25.5` 和应用图标（与默认形象一致的琥珀色圆角方块）；托盘与任务栏使用同一图标。
+- 版本资源：exe 写入 `FileVersion 0.11.25.6`、`ProductVersion 0.11.25.6` 和应用图标（与默认形象一致的琥珀色圆角方块）；托盘与任务栏使用同一图标。
 - 升级：同 AppId 覆盖安装；安装前向已运行实例的隐藏窗口发送 `WM_CLOSE`，等待其退出后替换文件。用户配置与自定义形象不受影响。
 - 卸载：删除程序文件、快捷方式、卸载项与自启注册表值；默认保留 `%APPDATA%\RelaxationReminder` 下的配置和自定义形象，重装后继续生效。
 - 签名：不做代码签名（2026-11-06 决定）。首次运行安装包可能出现 SmartScreen“Windows 已保护你的电脑”，需用户点击“更多信息 → 仍要运行”；README 提供说明。未签名也可能触发少数杀软误报。
@@ -306,6 +308,7 @@ music_file=
 - 首次运行默认写入自启项；用户在设置/托盘关闭后删除，之后启动不再自动恢复。
 - 单实例：命名互斥体 `Local\RelaxationReminder`；重复启动时向已有实例发消息打开设置，然后退出。
 - 关闭提醒窗口不退出进程；只有托盘“退出”或安装/卸载程序请求结束时，常驻进程才退出。
+- 检查更新：托盘“检查更新”启动工作线程，经 WinHTTP（HTTPS、自动/系统代理、4–5 秒超时）请求 GitHub `releases/latest`，解析 `tag_name` 并与 exe 的文件版本比较；不自动下载或安装。发现新版本时把智能体更新提示词（当前/最新版本 + INSTALL.md 地址）写入剪贴板并弹窗；已是最新或失败也弹窗。检查期间不阻塞 50 ms 计时器，同一时间只允许一个检查；启动和空闲时不联网。winhttp.dll 与 version.dll 延迟加载。
 
 ## 10. macOS 方案（本期不实现）
 
@@ -337,7 +340,7 @@ music_file=
 
 - 统计范围：核心 exe 为 `RelaxationReminder.exe` 本体 + 内嵌资源；安装包为 `RelaxationReminder-Setup-<version>.exe` 单文件。均不含 Windows 自带的系统 DLL/运行库，不含用户自定义形象文件。不依赖 VC++ Redistributable。
 - 测量：`(Get-Item .\RelaxationReminder.exe).Length` 与 `(Get-Item .\dist\RelaxationReminder-Setup-<version>.exe).Length`，连续构建 3 次取最大值。
-- 目标：核心 exe ≤1 MB（与硬指标一致）；安装包 ≤3 MB（单独记录，不计入 1 MB 判定）。当前构建含内置音乐实测 exe 约 0.98 MB（1,027,584 B）；安装包发布时实测记录。
+- 目标：核心 exe ≤1 MB（与硬指标一致）；安装包 ≤3 MB（单独记录，不计入 1 MB 判定）。当前构建（含检查更新与内置音乐）实测 exe 1,039,872 B（约 0.99 MB，距 1 MiB 余量 8,704 B）；安装包实测 2,497,037 B（约 2.38 MB）。
 
 ### 12.2 内存占用
 
@@ -349,6 +352,7 @@ music_file=
 - 采样：启动后预热 5 分钟，空闲状态每 30 秒采样一次、持续 30 分钟，记录平均值与最大值；提醒显示期间每 5 秒采样一次、持续 5 分钟。
 - 判定：默认形象场景最大值 ≤ min(物理内存 1%, 20 MB)；加载自定义形象场景 ≤ min(物理内存 1%, 50 MB)。
 - 音乐：待机不加载 winmm（延迟加载），零增量；播放内置音乐的瞬时增量约 1.0~1.2 MB（winmm 映射 + 729 KB PCM + 4 个 40 ms 输出缓冲）；用户 5 MB WAV 瞬时增量约 ≤6 MB。测量时在播放开始后以 50 ms 间隔轮询 `PrivateMemorySize64` 取峰值；自定义形象与音乐同时存在时目标 ≤60 MB。
+- 检查更新：winhttp.dll 与 version.dll 延迟加载，待机零增量；首次检查后系统 DLL 保持映射（以共享页为主），不产生用户数据缓存，验收时单独记录。
 
 ### 12.3 空闲 CPU
 
@@ -404,6 +408,7 @@ music_file=
 8. **macOS/iOS 无法在当前环境验证**：本期只交付设计，构建与验收需 Mac 环境。
 9. **自定义动图的 CPU/内存开销**：逐帧解码和大尺寸图片可能抬高占用，已通过 10 MB / 1024×1024 / 500 帧上限约束；验收时需单独测量该场景。
 10. **不可信图片文件**：只做 GDI+ 解码，不执行内容；加载前校验尺寸、帧数与文件大小，防止畸形文件导致崩溃或内存膨胀。
+11. **检查更新依赖 GitHub 可达性**：未认证 API 限每小时 60 次/IP；离线、代理异常或限流时只提示失败，不自动重试、不影响本地提醒。程序不自动下载或安装更新，因此不存在自更新替换文件的风险。
 
 ## 14. 里程碑
 
@@ -434,6 +439,7 @@ music_file=
 13. 设置面板档位化（2026-11-06）：三个时间参数改为拖动条（提醒间隔 20–60 步长 10，休息/延后 5/10/15），移除右侧说明与红色校验提示；空闲阈值仅保留配置文件入口，重置不改动该值；全界面统一使用 Microsoft YaHei UI。
 14. 休息结束音乐（2026-11-09，同日修订）：取消 `music_lead_seconds`；休息倒计时归零后开始播放，时长由 `music_play_seconds`（30–120，默认 60）控制，面板拖动条可改；播放期间窗口保持打开、标题改为“生产队的驴都不敢这么歇！”；动键鼠即淡出并关闭；音乐关闭时倒计时结束即关闭窗口。内置音乐为程序合成的 2 秒片段（24 kHz 单声道 PCM，内嵌 exe，复刻参考提示音前 2 秒的 1049 Hz 铃声），循环播放且每遍后静音 3 秒（2 秒音乐、3 秒停顿）；用户可选 PCM WAV（≤5 MB）。播放由 `PlaySound` 改为 `waveOut` 流式播放以支持淡出，仍延迟加载 winmm；不提供单条音量。
 15. 内置休息结束音乐替换（2026-11-17）：默认音乐由程序合成的 2 秒铃声改为约 15.6 秒的驴叫声片段（24 kHz 单声道 16-bit PCM，内嵌 exe），仍循环播放且每遍后静音 3 秒；删除 `tools/make_music.py`，核心 exe 约 0.98 MB。
+16. 检查更新（2026-11-23）：托盘新增“检查更新”，后台查询 GitHub 最新 Release；有新版本时只把智能体更新提示词复制到剪贴板并提示用户交给智能体更新，不自动下载或安装。这是程序唯一的联网动作，启动和空闲时不联网；新增 `core/version` 与 `win32/update_check`，winhttp/version 延迟加载，核心 exe 约 0.99 MB。
 
 ## 16. 待确认事项
 

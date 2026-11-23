@@ -39,10 +39,10 @@ cl /nologo /std:c++17 /permissive- /utf-8 /O2 /MT /W4 /EHsc /Isrc /experimental:
     /Fo:build\ /Fe:build\RelaxationReminder.exe ^
     src\win32\main.cpp src\win32\reminder_window.cpp src\win32\character_image.cpp ^
     src\win32\rest_sound.cpp src\win32\settings_window.cpp src\win32\splash_window.cpp ^
-    src\win32\rounded_ui.cpp ^
-    src\core\config.cpp src\core\state_machine.cpp src\core\growth.cpp build\app.res ^
-    /link /SUBSYSTEM:WINDOWS /MACHINE:X64 /DELAYLOAD:winmm.dll ^
-    user32.lib gdi32.lib gdiplus.lib comdlg32.lib comctl32.lib uxtheme.lib shell32.lib advapi32.lib shcore.lib dwmapi.lib wtsapi32.lib winmm.lib delayimp.lib
+    src\win32\rounded_ui.cpp src\win32\update_check.cpp ^
+    src\core\config.cpp src\core\state_machine.cpp src\core\growth.cpp src\core\version.cpp build\app.res ^
+    /link /SUBSYSTEM:WINDOWS /MACHINE:X64 /DELAYLOAD:winmm.dll /DELAYLOAD:winhttp.dll /DELAYLOAD:version.dll ^
+    user32.lib gdi32.lib gdiplus.lib comdlg32.lib comctl32.lib uxtheme.lib shell32.lib advapi32.lib shcore.lib dwmapi.lib wtsapi32.lib winmm.lib winhttp.lib version.lib delayimp.lib
 if errorlevel 1 exit /b 1
 
 echo.
@@ -78,7 +78,7 @@ echo.
 if not exist build\test mkdir build\test
 cl /nologo /std:c++17 /permissive- /utf-8 /O2 /MT /W4 /EHsc /Isrc /experimental:deterministic "/pathmap:%~dp0=." ^
     /Fo:build\test\ /Fe:build\state_machine_test.exe ^
-    tests\state_machine_test.cpp src\core\config.cpp src\core\state_machine.cpp src\core\growth.cpp
+    tests\state_machine_test.cpp src\core\config.cpp src\core\state_machine.cpp src\core\growth.cpp src\core\version.cpp
 if errorlevel 1 exit /b 1
 build\state_machine_test.exe
 exit /b %errorlevel%

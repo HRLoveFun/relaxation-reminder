@@ -17,9 +17,11 @@ add_executable(RelaxationReminder WIN32
     src/win32/rounded_ui.cpp
     src/win32/settings_window.cpp
     src/win32/splash_window.cpp
+    src/win32/update_check.cpp
     src/core/config.cpp
     src/core/state_machine.cpp
     src/core/growth.cpp
+    src/core/version.cpp
     src/resources/app.rc
 )
 
@@ -39,9 +41,9 @@ target_compile_options(RelaxationReminder PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/W4;/EHsc;/utf-8;/permissive-;/experimental:deterministic;"/pathmap:${CMAKE_SOURCE_DIR}=.">
 )
 
-# Delay-load winmm so the audio stack is only mapped on the first chime.
+# Delay-load the optional system DLLs so idle memory and startup stay lean.
 target_link_options(RelaxationReminder PRIVATE
-    $<$<CXX_COMPILER_ID:MSVC>:/DELAYLOAD:winmm.dll>
+    "$<$<CXX_COMPILER_ID:MSVC>:/DELAYLOAD:winmm.dll;/DELAYLOAD:winhttp.dll;/DELAYLOAD:version.dll>"
 )
 
 if(RR_TEST_MODE)
@@ -61,6 +63,8 @@ target_link_libraries(RelaxationReminder PRIVATE
     dwmapi
     wtsapi32
     winmm
+    winhttp
+    version
     delayimp
 )
 

@@ -5,6 +5,7 @@
 #include "core/config.h"
 #include "core/growth.h"
 #include "core/state_machine.h"
+#include "core/version.h"
 
 namespace {
 
@@ -536,6 +537,34 @@ void GrowthFitsSmallWorkAreas() {
     CHECK(curve.SideAt(60000) <= 400.0 + 1e-9);
 }
 
+void VersionParsingAndComparison() {
+    rr::VersionNumber version;
+    CHECK(rr::ParseVersion("0.11.25.6", &version));
+    CHECK(version.parts[0] == 0 && version.parts[1] == 11 &&
+          version.parts[2] == 25 && version.parts[3] == 6);
+
+    CHECK(rr::ParseVersion("v0.11.25.6-beta", &version));
+    CHECK(version.parts[3] == 6);
+
+    CHECK(rr::ParseVersion("  V1.2.3.4", &version));
+    CHECK(version.parts[0] == 1 && version.parts[3] == 4);
+
+    CHECK(!rr::ParseVersion("1.2.3", &version));
+    CHECK(!rr::ParseVersion("1..3.4", &version));
+    CHECK(!rr::ParseVersion("1.2.3.x", &version));
+    CHECK(!rr::ParseVersion("", &version));
+
+    rr::VersionNumber older;
+    rr::VersionNumber newer;
+    rr::VersionNumber same;
+    rr::ParseVersion("0.11.25.5", &older);
+    rr::ParseVersion("0.11.25.6", &newer);
+    rr::ParseVersion("0.11.25.5", &same);
+    CHECK(rr::CompareVersions(older, newer) < 0);
+    CHECK(rr::CompareVersions(newer, older) > 0);
+    CHECK(rr::CompareVersions(older, same) == 0);
+}
+
 void ConfigValidationFallsBack() {
     rr::Config config;
     config.reminder_interval_minutes = 0;
@@ -632,6 +661,7 @@ int main() {
     ToggleMusicAppliesImmediately();
     PauseFreezesMusicPlayback();
     ConfigChangesApplyNextCycle();
+    VersionParsingAndComparison();
     ConfigValidationFallsBack();
     GrowthReachesCapInSixtySeconds();
     GrowthFitsSmallWorkAreas();
